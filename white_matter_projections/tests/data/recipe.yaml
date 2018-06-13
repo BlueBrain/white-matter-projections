@@ -1,0 +1,228 @@
+populations:
+    - name: POP1_ALL_LAYERS
+      atlas_region:
+          name: ECT
+          subregions: [l1, l2, l3, l4, l5, l6]
+      filters: []
+
+    - name: POP2_ALL_LAYERS
+      atlas_region:
+          name: MOs
+          subregions: [l1, l2, l3, l4, l5, l6]
+      filters: []
+
+    - name: POP3_ALL_LAYERS
+      atlas_region:
+          name: ACAd
+          subregions: [l1, l2, l3, l4, l5, l6]
+      filters: []
+
+    - name: POP4_ALL_LAYERS
+      atlas_region:
+          name: FRP
+          subregions: [l1, l2, l3, l4, l5, l6]
+      filters: []
+
+    - name: SUB_POP4_L23
+      atlas_region:
+          name: FRP
+          subregions: [l2, l3]
+      filters: {'synapse_type': 'EXC'}
+
+projections:
+    - source: POP1_ALL_LAYERS
+      mapping_coordinate_system:
+          base_system: Allen Dorsal Flatmap
+          x: [297.67, 449.82, 601.97]
+          y: [387.62, 652.49, 387.62]
+      targets:
+        - projection_name: PROJ1a_ipsi
+          source_filters: []
+          hemisphere: ipsi
+          population: POP2_ALL_LAYERS
+          density: 0.053503077140383916
+          presynaptic_mapping:
+              mapping_variance: 21.61890
+              mapping_coordinate_system:
+                  base_system: Allen Dorsal Flatmap
+                  x: [74.69, 223.52, 372.36]
+                  y: [257.52, 517.47, 257.52]
+          connection_mapping:
+              type: type_1
+          target_layer_profiles:
+            - name: profile_1
+              fraction: 1.0
+          synapse_types:
+            - name: type_1
+              fraction: 1.0
+
+        - projection_name: PROJ1b_contra
+          source_filters: []
+          hemisphere: contra
+          population: POP4_ALL_LAYERS
+          density: 0.007335306870955624
+          presynaptic_mapping:
+              mapping_variance: 21.61890
+              mapping_coordinate_system:
+                  base_system: Allen Dorsal Flatmap
+                  x: [74.69, 223.52, 372.36]
+                  y: [257.52, 517.47, 257.52]
+          connection_mapping:
+              type: type_1
+          target_layer_profiles:
+            - name: profile_2
+              fraction: 1.0
+          synapse_types:
+            - name: type_1
+              fraction: 1.0
+
+        - projection_name: PROJ1c_ipsi
+          source_filters: []
+          hemisphere: ipsi
+          population: POP3_ALL_LAYERS
+          density: 0.007335306870955624
+          presynaptic_mapping:
+              mapping_variance: 21.61890
+              mapping_coordinate_system:
+                  base_system: Allen Dorsal Flatmap
+                  x: [74.69, 223.52, 372.36]
+                  y: [257.52, 517.47, 257.52]
+          connection_mapping:
+              type: type_1
+          target_layer_profiles:
+            - name: profile_2
+              fraction: 1.0
+          synapse_types:
+            - name: type_1
+              fraction: 1.0
+
+    - source: POP2_ALL_LAYERS
+      mapping_coordinate_system:
+          base_system: Allen Dorsal Flatmap
+          x: [297.67, 449.82, 601.97]
+          y: [387.62, 652.49, 387.62]
+      targets:
+        - projection_name: PROJ2a_ipsi
+          source_filters: []
+          hemisphere: ipsi
+          population: POP4_ALL_LAYERS
+          density: 0.007335306870955624
+          presynaptic_mapping:
+              mapping_variance: 21.61890
+              mapping_coordinate_system:
+                  base_system: Allen Dorsal Flatmap
+                  x: [74.69, 223.52, 372.36]
+                  y: [257.52, 517.47, 257.52]
+          connection_mapping:
+              type: type_1
+          target_layer_profiles:
+            - name: profile_2
+              fraction: 1.0
+          synapse_types:
+            - name: type_1
+              fraction: 1.0
+
+        - projection_name: PROJ2b_contra
+          source_filters: []
+          hemisphere: contra
+          population: POP4_ALL_LAYERS
+          density: 0.01390296534843915
+          presynaptic_mapping:
+              mapping_variance: 21.61890
+              mapping_coordinate_system:
+                  base_system: Allen Dorsal Flatmap
+                  x: [74.69, 223.52, 372.36]
+                  y: [257.52, 517.47, 257.52]
+          connection_mapping:
+              type: type_1
+          target_layer_profiles:
+            - name: profile_2
+              fraction: 1.0
+          synapse_types:
+            - name: type_1
+              fraction: 1.0
+
+p-types:
+    - population: SUB_POP4_L23
+      fractions:
+        PROJ1a_ipsi: 0.1
+        PROJ1b_contra: 0.2
+        PROJ2a_ipsi: 0.3
+
+    - population: POP2_ALL_LAYERS
+      fractions:
+        PROJ1a_ipsi: 0.4
+
+    - population: POP3_ALL_LAYERS
+      fractions:
+        PROJ1a_ipsi: 0.1
+        PROJ1b_contra: 0.3
+        PROJ1c_ipsi: 0.2
+        PROJ2b_contra: 0.1
+
+layer_profiles:
+    - name: profile_1
+      relative_densities:
+        - layers: ['l1']
+          value: 2.639020
+        - layers: ['l23']
+          value: 1.655240
+        - layers: ['l4']
+          value: 0.394960
+        - layers: ['l5']
+          value: 0.351513
+        - layers: ['l6a', 'l6b']
+          value: 0.351513
+
+    - name: profile_2
+      relative_densities:
+        - layers: ['l1']
+          value: 2.795373
+        - layers: ['l23']
+          value: 0.425331
+        - layers: ['l4']
+          value: 0.323954
+        - layers: ['l5']
+          value: 1.190083
+        - layers: ['l6a', 'l6b']
+          value: 0.440938
+
+synapse_types:
+    - name: type_1
+      physiology:
+        - phys_parameter: U
+          distribution:
+            - type: truncated_gaussian
+              dist_parameters:
+                - mean: 0.46
+                - std: 0.26
+        - phys_parameter: D
+          distribution:
+            - type: truncated_gaussian
+              dist_parameters:
+                - mean: 671.0
+                  std: 17.0
+        - phys_parameter: F
+          distribution:
+            - type: truncated_gaussian
+              dist_parameters:
+                - mean: 17.0
+                  std: 5.0
+        - phys_parameter: gsyn
+          distribution:
+            - type: truncated_gaussian
+              dist_parameters:
+                - mean: 0.65
+                  std: 0.44
+        - phys_parameter: nrrp
+          distribution:
+            - type: uniform_int
+              dist_parameters:
+                - min: 1
+                  max: 4
+        - phys_parameter: dtc
+          distribution:
+            - type: truncated_gaussian
+              dist_parameters:
+                - mean: 1.74
+                  std: 0.425

@@ -1,0 +1,248 @@
+#!/usr/bin/env python
+'''white-matter application'''
+
+import logging
+import itertools as it
+
+import click
+import yaml
+
+from voxcell.nexus import voxelbrain
+from white_matter_projections import utils
+from white_matter_projections.macro import load_macro_recipe
+import numpy as np
+import pandas as pd
+import voxcell
+
+L = logging.getLogger(__name__)
+
+
+# Allow for matplotlib to be interactive or writing to file
+plt = None
+
+
+def _load_config_to_ctx(config, ctx):
+    ctx.obj['config_path'] = config
+    with open(config) as fd:
+        ctx.obj['config'] = yaml.load(fd)
+
+
+def _load_atlas_to_ctx(ctx):
+    config = ctx.obj['config']
+    atlas = voxelbrain.Atlas.open(config['atlas_url'], cache_dir=config['cache_dir'])
+    if 'hierarchy' in config:
+        path = utils.relative_to_config(ctx.obj['config_path'], config['hierarchy'])
+        hier = voxcell.hierarchy.Hierarchy.load_json(path)
+    else:
+        hier = atlas.load_hierarchy()
+
+    ctx.obj['atlas'] = atlas
+    ctx.obj['hier'] = hier
+
+
+@click.group()
+@click.version_option()
+@click.option('-v', '--verbose', count=True)
+@click.option('-m', '--interactive-matplotlib', is_flag=True)
+@click.pass_context
+def cli(ctx, verbose, interactive_matplotlib):
+    global plt
+    if not interactive_matplotlib:
+        import matplotlib
+        matplotlib.use('Agg')  # noqa
+
+    import matplotlib.pyplot
+    plt = matplotlib.pyplot
+
+    if interactive_matplotlib:
+        def figure():
+            return plt.figure()
+        def display(_):
+            plt.show()
+    else:
+        def figure():
+            return plt.figure(figsize=(12., 12.))
+        def display(name):
+            plt.savefig(name)
+
+    ctx.obj['display'] = display
+    ctx.obj['figure'] = figure
+
+    logging.basicConfig(level=(logging.WARNING,
+                               logging.INFO,
+                               logging.DEBUG)[min(verbose, 2)])
+
+
+@cli.group()
+@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.pass_context
+def macro(ctx, config):
+    _load_config_to_ctx(config, ctx)
+    _load_atlas_to_ctx(ctx)
+
+    recipe_path = ctx.obj['config']['projections_recipe']
+    config_path = ctx.obj['config_path']
+    hier = ctx.obj['hier']
+    ctx.obj['recipe'] = load_macro_recipe(config_path, recipe_path, hier)
+
+
+@macro.command()
+@click.option('-t', '--target', default='FRP')
+@click.pass_context
+def stacked_target_density(ctx, target):
+    '''stacked target density
+
+    Colored by source:
+        1. MODULE
+        2. LAYER (or subregion, i.e. 5it and 5pt are separate)
+        3. REGION
+    '''
+    config = ctx.obj['config']
+    recipe = ctx.obj['recipe']
+    layer_heights = utils.region_layer_heights(config['region_layer_heights'])
+    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
+
+    fig = ctx.obj['figure']()
+    ax = fig.gca()
+    stacked_density = recipe.get_target_region_density_sources(norm_layer_profiles, target)
+    stacked_density.plot(kind='bar', stacked=True, ax=ax)
+    ax.set_title('Vertical Profile of incoming regions for target: ' + target)
+    ctx.obj['display']('stacked_region_%s.png' % target)
+
+
+@macro.command()
+@click.option('-t', '--target', default='FRP')
+@click.pass_context
+def stacked_target_density_module(ctx, target):
+    config = ctx.obj['config']
+    recipe = ctx.obj['recipe']
+
+    layer_heights = utils.region_layer_heights(config['region_layer_heights'])
+    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
+
+    import altair as alt
+    modules = config['module_grouping']
+    stacked_density = recipe.get_target_region_density_modules(
+        norm_layer_profiles, target, modules)
+
+    stacked_density = (stacked_density
+                       .T
+                       .reset_index()
+                       .melt('Source')
+                       )
+    order = alt.Order('Source', sort='ascending')
+    chart = (alt.Chart(stacked_density)
+             .properties(height=1000, width=400,
+                         title='%s Layer by Source Population' % target)
+             .mark_bar()
+             .encode(
+                 x=alt.X('Target:N', axis=alt.Axis(title='Layer')),
+                 y=alt.Y('sum(value):Q', axis=alt.Axis(title='Density')),
+                 color=alt.Color('Source'),
+                 order=order,
+                 tooltip=['Source', 'Target', 'value']
+             )
+             .save('stacked_density_%s.html' % target)
+             )
+
+
+@macro.command()
+@click.pass_context
+@click.option('--contra', is_flag=True)
+def connectivity(ctx, contra):
+    config = ctx.obj['config']
+    recipe = ctx.obj['recipe']
+
+    hemisphere = 'contra' if contra else 'ipsi'
+    df = recipe.get_connection_density_map(hemisphere)
+
+    df = utils.perform_module_grouping(df, config['module_grouping'])
+
+    fig = ctx.obj['figure']()
+
+    title = 'Connection synapse density - ' + 'Contralateral' if contra else 'Ipsilateral'
+    utils.draw_connectivity(fig, df, title, config['module_grouping_color'])
+
+    ax = fig.axes[1]
+    ax.set_title('syns/um^3')
+    name = 'connectivity_contra.png' if contra else 'connectivity.png'
+    ctx.obj['display'](name)
+
+
+@macro.command()
+@click.pass_context
+@click.option('--contra', is_flag=True)
+def target_density(ctx, contra):
+    config = ctx.obj['config']
+    recipe = ctx.obj['recipe']
+    layer_heights = utils.region_layer_heights(config['region_layer_heights'])
+    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
+
+    hemisphere = 'contra' if contra else 'ipsi'
+    df = recipe.get_target_region_density(norm_layer_profiles, hemisphere)
+
+    import seaborn as sns
+    cmap = sns.diverging_palette(220, 20, sep=20, as_cmap=True, center='light')
+    cmap.set_bad(color='white')
+    df = df.replace(0., np.NaN)
+
+    fig = ctx.obj['figure']()
+    ax = fig.gca()
+    sns.heatmap(df, cmap=cmap, square=True, xticklabels=1, yticklabels=1, linewidth=0.5, ax=ax)
+    name = 'target_density_contra.png' if contra else 'target_density.png'
+    ctx.obj['display'](name)
+
+
+@macro.command()
+@click.pass_context
+def source_mapping_triangles(ctx):
+    recipe = ctx.obj['recipe']
+
+    ##XXX: should display all the brain regions in this figure as well
+    ##XXX: need to have flatmap registered first
+    ##shape = config['mapping']['flat_shape']
+    #config = ctx.obj['config']
+    #flatmap = voxcell.VoxelData.load_nrrd(config['mapping']['Allen Dorsal Flatmap'])
+    #td = flatmap.raw[:, 25, :]
+    #plt.imshow(td.T, origin='lower')
+
+    v = (0, 1, 2, 0)
+    for src, tgt in recipe.projections_mapping.items():
+        verts = tgt['vertices']
+        plt.plot(verts[v, 0], verts[v, 1], c='red')
+        x, y = np.mean(verts, axis=0)
+        plt.text(x, y, src)
+
+    name = 'mapping_triangles.png'
+    ctx.obj['display'](name)
+
+
+@macro.command()
+@click.option('-p', '--population', required=True)
+@click.pass_context
+def stats(ctx, population):
+    from bluepy.v2.circuit import Circuit
+    config = ctx.obj['config']
+    recipe = ctx.obj['recipe']
+
+    cells = Circuit(config['circuit_config']).cells.get()
+    region_names = set(recipe.populations.query('population == @population').subregion)  # noqa pylint: disable=unused-variable
+
+    region_cells = cells.query('region in @region_names')
+    print 'Cells in population: %d' % len(region_cells)
+
+    sources = recipe.projections.query('source_population == @population')
+    if len(sources):
+        print 'Projections with population as source:'
+        cols = ['target_population', 'projection_name', 'target_density']
+        print sources[cols]
+
+    targets = recipe.projections.query('target_population == @population')
+    if len(targets):
+        print 'Projections with population as target:'
+        cols = ['source_population', 'projection_name', 'target_density']
+        print targets[cols]
+
+
+if __name__ == '__main__':
+    cli(obj={})
