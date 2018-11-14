@@ -2,8 +2,101 @@
 import os
 
 import itertools as it
+import logging
+
+from lazy import lazy
+from voxcell.nexus import voxelbrain
+import voxcell
 import numpy as np
 import pandas as pd
+import yaml
+
+L = logging.getLogger(__name__)
+
+X, Y, Z = 0, 1, 2
+cX, cY, cZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z]
+
+
+class Config(object):
+    '''encapsulates config.yaml
+
+    makes it easier to load files pointed by the config, and wraps them in their proper types
+    '''
+
+    def __init__(self, config_path):
+        assert os.path.exists(config_path), 'config path %s does not exist' % config_path
+        self.config_path = config_path
+
+    @lazy
+    def config(self):
+        '''dictionary containing all keys in config'''
+        with open(self.config_path) as fd:
+            config = yaml.load(fd)
+        return config
+
+    @lazy
+    def circuit(self):
+        '''circuit referenced by config'''
+        from bluepy.v2.circuit import Circuit
+        return Circuit(self.config['circuit_config'])
+
+    @lazy
+    def regions(self):
+        '''regions referenced in config'''
+        regions = list(it.chain.from_iterable(c[1] for c in self.config['module_grouping']))
+        return regions
+
+    @lazy
+    def recipe(self):
+        '''MacroConnections recipe referenced in config'''
+        from white_matter_projections import macro
+
+        recipe_path = self.config['projections_recipe']
+        recipe_path = self._relative_to_config(self.config_path, recipe_path)
+
+        with open(recipe_path) as fd:
+            recipe = yaml.load(fd)
+
+        recipe = macro.MacroConnections.load_recipe(recipe, self.hierarchy)
+        return recipe
+
+    @lazy
+    def atlas(self):
+        '''atlas referenced in config'''
+        atlas = voxelbrain.Atlas.open(self.config['atlas_url'],
+                                      cache_dir=self.config['cache_dir'])
+        return atlas
+
+    @lazy
+    def hierarchy(self):
+        '''heirarchy referenced via atlas in config'''
+        if 'hierarchy' in self.config:
+            path = self._relative_to_config(self.config_path, self.config['hierarchy'])
+            hier = voxcell.hierarchy.Hierarchy.load_json(path)
+        else:
+            hier = self.atlas.load_hierarchy()
+        return hier
+
+    @lazy
+    def region_layer_heights(self):
+        '''converted dictionary in config to DataFrame'''
+        return region_layer_heights(self.config['region_layer_heights'])
+
+    @staticmethod
+    def _relative_to_config(config_path, path):
+        '''helper so full paths don't need to be embedded in config'''
+        if not os.path.exists(path):
+            relative = os.path.join(os.path.dirname(config_path), path)
+            if os.path.exists(relative):
+                path = relative
+            else:
+                raise Exception('Cannot find path: %s' % path)
+        return path
+
+
+def region_layer_heights(layer_heights, columns=('l1', 'l2', 'l3', 'l4', 'l5', 'l6')):
+    '''convert layer heights dictionary to pandas DataFrame'''
+    return pd.DataFrame.from_dict(layer_heights, orient='index', columns=columns)
 
 
 def perform_module_grouping(df, module_grouping):
@@ -28,17 +121,12 @@ def perform_module_grouping(df, module_grouping):
     return ret
 
 
-def region_layer_heights(layer_heights, columns=('l1', 'l2', 'l3', 'l4', 'l5', 'l6')):
-    '''convert `layer_heights` dictionary to DataFrame '''
-    return pd.DataFrame.from_dict(layer_heights, orient='index', columns=columns)
-
-
 def normalize_layer_profiles(layer_heights, profiles):
-    '''
+    '''calculate 'x' as described in white-matter-projections whitepaper
 
     Args:
-        layer_heights:
-        profiles:
+        layer_heights: mean height of all layers in all regions
+        profiles: profiles for each region, as defined in recipe
 
     As per Michael Reiman in NCX-121:
         Show overall density in each layer of the target region. Method: let w be the vector of
@@ -56,48 +144,19 @@ def normalize_layer_profiles(layer_heights, profiles):
     return ret
 
 
-def draw_connectivity(fig, df, title, module_grouping_color):
-    '''create figure of connectivity densities
+def get_region_layer_to_id(hier, region, layers):
+    '''map `region` name and `layers` to to ids based on `hier`
 
-    Args:
-        fig: matplotlib figure
-        df(dataframe): ipsilateral densities
-
+    an ID of zero means it was not found
     '''
-    # pylint: disable=too-many-locals
-
-    import seaborn as sns
-    fig.suptitle(title)
-    ax = fig.add_subplot(1, 1, 1)
-
-    cmap = sns.light_palette('blue', as_cmap=True)
-    cmap.set_bad(color='white')
-    df = df.replace(0., np.NaN)
-    ax = sns.heatmap(df, ax=ax, cmap=cmap,
-                     square=True, xticklabels=1, yticklabels=1, linewidth=0.5)
-    ax.set_xlabel('Target')
-    ax.set_ylabel('Source')
-
-    xtl = ax.set_xticklabels([v[1] for v in df.index.values])
-    ytl = ax.set_yticklabels([v[1] for v in df.columns.values],
-                             rotation='horizontal')
-
-    x_colors = [module_grouping_color[k] for k in df.columns.get_level_values(0)]
-    y_colors = [module_grouping_color[k] for k in df.index.get_level_values(0)]
-
-    for x, c in zip(xtl, x_colors):
-        x.set_backgroundcolor(c)
-
-    for y, c in zip(ytl, y_colors):
-        y.set_backgroundcolor(c)
-
-
-def relative_to_config(config_path, path):
-    '''given path to config, open `path`'''
-    if not os.path.exists(path):
-        relative = os.path.join(os.path.dirname(config_path), path)
-        if os.path.exists(relative):
-            path = relative
+    ret = {}
+    for i in layers:
+        ids_ = hier.collect('acronym', '%s%d' % (region, i), 'id')
+        if len(ids_) == 0:
+            ret[i] = 0
+        elif len(ids_) == 1:
+            ret[i] = next(iter(ids_))
         else:
-            raise Exception('Cannot find path: %s' % path)
-    return path
+            L.warning('Got more than one id for region: %s, layer: %d', region, i)
+            ret[i] = 0
+    return ret

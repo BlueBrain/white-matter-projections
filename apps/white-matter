@@ -5,39 +5,19 @@ import logging
 import itertools as it
 
 import click
-import yaml
-
-from voxcell.nexus import voxelbrain
-from white_matter_projections import utils
-from white_matter_projections.macro import load_macro_recipe
 import numpy as np
 import pandas as pd
-import voxcell
+from white_matter_projections import utils
+
 
 L = logging.getLogger(__name__)
-
-
 # Allow for matplotlib to be interactive or writing to file
 plt = None
 
 
-def _load_config_to_ctx(config, ctx):
-    ctx.obj['config_path'] = config
-    with open(config) as fd:
-        ctx.obj['config'] = yaml.load(fd)
-
-
-def _load_atlas_to_ctx(ctx):
-    config = ctx.obj['config']
-    atlas = voxelbrain.Atlas.open(config['atlas_url'], cache_dir=config['cache_dir'])
-    if 'hierarchy' in config:
-        path = utils.relative_to_config(ctx.obj['config_path'], config['hierarchy'])
-        hier = voxcell.hierarchy.Hierarchy.load_json(path)
-    else:
-        hier = atlas.load_hierarchy()
-
-    ctx.obj['atlas'] = atlas
-    ctx.obj['hier'] = hier
+def print_green(s):
+    '''output text in green'''
+    click.echo(click.style(s, fg='green'))
 
 
 @click.group()
@@ -61,29 +41,53 @@ def cli(ctx, verbose, interactive_matplotlib):
             plt.show()
     else:
         def figure():
-            return plt.figure(figsize=(12., 12.))
+            fig = plt.gcf()
+            fig.set_size_inches(20, 20)
+            fig.tight_layout()
+            return fig
         def display(name):
             plt.savefig(name)
+            click.echo(click.style('Wrote: %s' % name, fg='green'))
+
 
     ctx.obj['display'] = display
     ctx.obj['figure'] = figure
 
     logging.basicConfig(level=(logging.WARNING,
                                logging.INFO,
-                               logging.DEBUG)[min(verbose, 2)])
+                               logging.DEBUG)[min(verbose, 2)],
+                        format='%(asctime)s %(levelname)-8s %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
+
+
+@cli.command()
+@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.pass_context
+def repl(ctx, config):
+    import IPython
+
+    ctx.obj['config'] = _c = utils.Config(config)
+
+    config = _c.config
+    atlas = _c.atlas
+    hier = _c.hierarchy
+    recipe = _c.recipe
+    layer_heights = _c.region_layer_heights
+    del _c
+
+    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
+
+    from bluepy.v2.circuit import Circuit
+    cells = Circuit(config['circuit_config']).cells.get()
+
+    IPython.embed(banner1='You have access to: atlas, cells, recipe, layer_heights, norm_layer_profiles')
 
 
 @cli.group()
 @click.option('-c', '--config', type=click.Path(exists=True), required=True)
 @click.pass_context
 def macro(ctx, config):
-    _load_config_to_ctx(config, ctx)
-    _load_atlas_to_ctx(ctx)
-
-    recipe_path = ctx.obj['config']['projections_recipe']
-    config_path = ctx.obj['config_path']
-    hier = ctx.obj['hier']
-    ctx.obj['recipe'] = load_macro_recipe(config_path, recipe_path, hier)
+    ctx.obj['config'] = utils.Config(config)
 
 
 @macro.command()
@@ -97,9 +101,9 @@ def stacked_target_density(ctx, target):
         2. LAYER (or subregion, i.e. 5it and 5pt are separate)
         3. REGION
     '''
-    config = ctx.obj['config']
-    recipe = ctx.obj['recipe']
-    layer_heights = utils.region_layer_heights(config['region_layer_heights'])
+    recipe = ctx.obj['config'].recipe
+    layer_heights = ctx.obj['config'].region_layer_heights
+
     norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
 
     fig = ctx.obj['figure']()
@@ -114,8 +118,8 @@ def stacked_target_density(ctx, target):
 @click.option('-t', '--target', default='FRP')
 @click.pass_context
 def stacked_target_density_module(ctx, target):
-    config = ctx.obj['config']
-    recipe = ctx.obj['recipe']
+    config = ctx.obj['config'].config
+    recipe = ctx.obj['config'].recipe
 
     layer_heights = utils.region_layer_heights(config['region_layer_heights'])
     norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
@@ -150,8 +154,9 @@ def stacked_target_density_module(ctx, target):
 @click.pass_context
 @click.option('--contra', is_flag=True)
 def connectivity(ctx, contra):
-    config = ctx.obj['config']
-    recipe = ctx.obj['recipe']
+    from white_matter_projections import display
+    config = ctx.obj['config'].config
+    recipe = ctx.obj['config'].recipe
 
     hemisphere = 'contra' if contra else 'ipsi'
     df = recipe.get_connection_density_map(hemisphere)
@@ -161,10 +166,8 @@ def connectivity(ctx, contra):
     fig = ctx.obj['figure']()
 
     title = 'Connection synapse density - ' + 'Contralateral' if contra else 'Ipsilateral'
-    utils.draw_connectivity(fig, df, title, config['module_grouping_color'])
+    display.draw_connectivity(fig, df, title, config['module_grouping_color'])
 
-    ax = fig.axes[1]
-    ax.set_title('syns/um^3')
     name = 'connectivity_contra.png' if contra else 'connectivity.png'
     ctx.obj['display'](name)
 
@@ -173,15 +176,15 @@ def connectivity(ctx, contra):
 @click.pass_context
 @click.option('--contra', is_flag=True)
 def target_density(ctx, contra):
-    config = ctx.obj['config']
-    recipe = ctx.obj['recipe']
-    layer_heights = utils.region_layer_heights(config['region_layer_heights'])
+    import seaborn as sns
+    recipe = ctx.obj['config'].recipe
+    layer_heights = ctx.obj['config'].region_layer_heights
+
     norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
 
     hemisphere = 'contra' if contra else 'ipsi'
     df = recipe.get_target_region_density(norm_layer_profiles, hemisphere)
 
-    import seaborn as sns
     cmap = sns.diverging_palette(220, 20, sep=20, as_cmap=True, center='light')
     cmap.set_bad(color='white')
     df = df.replace(0., np.NaN)
@@ -196,24 +199,14 @@ def target_density(ctx, contra):
 @macro.command()
 @click.pass_context
 def source_mapping_triangles(ctx):
-    recipe = ctx.obj['recipe']
+    from white_matter_projections import display, flat_mapping
 
-    ##XXX: should display all the brain regions in this figure as well
-    ##XXX: need to have flatmap registered first
-    ##shape = config['mapping']['flat_shape']
-    #config = ctx.obj['config']
-    #flatmap = voxcell.VoxelData.load_nrrd(config['mapping']['Allen Dorsal Flatmap'])
-    #td = flatmap.raw[:, 25, :]
-    #plt.imshow(td.T, origin='lower')
+    ax = plt.gca()
+    ax.set_aspect('equal')
+    flat_map = flat_mapping.load_100()
+    display.plot_source_region_triangles(ax, ctx.obj['config'], flat_map)
 
-    v = (0, 1, 2, 0)
-    for src, tgt in recipe.projections_mapping.items():
-        verts = tgt['vertices']
-        plt.plot(verts[v, 0], verts[v, 1], c='red')
-        x, y = np.mean(verts, axis=0)
-        plt.text(x, y, src)
-
-    name = 'mapping_triangles.png'
+    name = 'src_mapping_triangles.png'
     ctx.obj['display'](name)
 
 
@@ -221,27 +214,27 @@ def source_mapping_triangles(ctx):
 @click.option('-p', '--population', required=True)
 @click.pass_context
 def stats(ctx, population):
-    from bluepy.v2.circuit import Circuit
     config = ctx.obj['config']
-    recipe = ctx.obj['recipe']
+    recipe, circuit = config.recipe, config.circuit
 
-    cells = Circuit(config['circuit_config']).cells.get()
+    cells = circuit.cells.get()
     region_names = set(recipe.populations.query('population == @population').subregion)  # noqa pylint: disable=unused-variable
 
     region_cells = cells.query('region in @region_names')
-    print 'Cells in population: %d' % len(region_cells)
+
+    print_green('Cells in population: %d' % len(region_cells))
 
     sources = recipe.projections.query('source_population == @population')
     if len(sources):
-        print 'Projections with population as source:'
+        print_green('Projections with population as source:')
         cols = ['target_population', 'projection_name', 'target_density']
-        print sources[cols]
+        print(sources[cols])
 
     targets = recipe.projections.query('target_population == @population')
     if len(targets):
-        print 'Projections with population as target:'
+        print_green('Projections with population as target:')
         cols = ['source_population', 'projection_name', 'target_density']
-        print targets[cols]
+        print(targets[cols])
 
 
 if __name__ == '__main__':

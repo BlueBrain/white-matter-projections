@@ -19,6 +19,7 @@ setup(
     install_requires=[
         'bluepy>=0.12.5',
         'click>=6.0',
+        'lazy>=1.0',
         'matplotlib>=2.0.0',
         'pandas>=0.23.0',
         'pyyaml>=3.12',

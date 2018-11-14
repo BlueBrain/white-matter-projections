@@ -148,6 +148,10 @@ p-types:
         PROJ1a_ipsi: 0.1
         PROJ1b_contra: 0.2
         PROJ2a_ipsi: 0.3
+      interaction_mat:
+          projections: [PROJ1a_ipsi,
+                        PROJ2a_ipsi]
+          strengths: [2, ]
 
     - population: POP2_ALL_LAYERS
       fractions:

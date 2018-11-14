@@ -23,25 +23,13 @@ from collections import defaultdict
 import itertools as it
 import logging
 import numpy as np
-import yaml
 
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 from scipy.spatial.distance import squareform
-from white_matter_projections import hierarchy, utils
+from white_matter_projections import hierarchy
 
 L = logging.getLogger(__name__)
-
-
-def load_macro_recipe(config_path, recipe_path, hier):
-    '''given path to config, open `path`'''
-    recipe_path = utils.relative_to_config(config_path, recipe_path)
-
-    with open(recipe_path) as fd:
-        recipe = yaml.load(fd)
-
-    recipe = MacroConnections.load_recipe(recipe, hier)
-    return recipe
 
 
 class MacroConnections(object):
@@ -90,7 +78,7 @@ class MacroConnections(object):
         missing_populations = needed_populations - populations
         assert not missing_populations, 'Missing %s' % missing_populations
 
-        # ...MAYBE removes pops if no p-ptypes reference them,
+        # ...MAYBE removes populations if no p-ptypes reference them,
         # however, for the connectivity matrix, maybe we want them?
         unused_populations = set(populations - needed_populations)
         if unused_populations:
@@ -119,7 +107,6 @@ class MacroConnections(object):
                     pi, pj = ptype.loc[i, 'fraction'], ptype.loc[j, 'fraction']
                     wij = df.loc[i, j]
                     msg = 'For %s, the projection: %s(p=%s) with weight: %s is %f'
-                    #
                     if wij * pi > TOLERANCE:
                         L.warning(msg, source_population, i, pi, wij, pi * wij)
                     if wij * pj > TOLERANCE:
@@ -140,7 +127,7 @@ class MacroConnections(object):
                 )
 
     def _get_connection_map(self, aggregate_function, hemisphere):
-        '''get dataframe with the desired synapse density from source -> target region
+        '''get dataframes with the desired synapse density from source -> target region
         '''
         hemisphere = hemisphere  # pylint workaround: variable used in query()
         projections = (self._get_projections()
@@ -289,6 +276,10 @@ class MacroConnections(object):
         ret._check_consistency()  # pylint: disable=protected-access
 
         return ret
+
+    def __repr__(self):
+        return 'MacroConnections: [populations: {}, projections: {}, ptypes: {}]'.format(
+            len(self.populations), len(self.projections), len(self.ptypes))
 
 
 def _parse_populations(populations, hier):

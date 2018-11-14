@@ -1,13 +1,9 @@
+import pandas as pd
 from nose.tools import ok_, eq_
 from white_matter_projections import macro, utils
 from utils import POP_CAT, RECIPE, HIER
 from numpy.testing import assert_allclose
 
-'''
-TODO:
-def load_recipe(config_path, recipe_path, hier):
-
-'''
 
 def test__parse_populations():
     pop_cat, populations = macro._parse_populations(RECIPE['populations'], HIER)
@@ -63,12 +59,13 @@ def test_MacroConnections():
     ret = recipe.get_target_region_density_sources(norm_layer_profiles, 'FRP')
     assert_allclose(ret.loc['l1']['POP2_ALL_LAYERS'], 0.08996559)
 
-    '''
-    import ipdb; ipdb.set_trace()  # XXX BREAKPOINT
-    modules = ['TopLevel', ['FRP', 'MOs', ], ]
+    modules = [('TopLevel', ['FRP', 'MOs', ]),
+               ]
     ret = recipe.get_target_region_density_modules(norm_layer_profiles, 'FRP', modules)
-    _get_projections
-    _get_connection_map
-    _calculate_densities
-    get_target_region_density_modules
-    '''
+    ok_(isinstance(ret, pd.DataFrame))
+    assert_allclose(ret.loc['l1', 'TopLevel'], 0.08996559651848632)
+
+    #_get_projections
+    #_get_connection_map
+    #_calculate_densities
+    #get_target_region_density_modules

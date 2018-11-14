@@ -1,0 +1,40 @@
+atlas_url: http://voxels.nrinf.ocp.bbp.epfl.ch/api/analytics/atlas/releases/568F4549-82D2-464F-9844-C163FA0C8F8A/
+cache_dir: .
+projections_recipe: recipe.yaml
+
+#need a circuit accessible from plan
+circuit_config: /gpfs/bbp.cscs.ch/project/proj68/circuits/dev-large/20180904/CircuitConfig
+
+# from Harris paper, figure 2b
+module_grouping:
+    - [prefrontal,
+      [FRP, MOs, ACAd, ]]
+    - [temporal,
+      [ECT, ]]
+
+ignored_regions: [ACAd4, ECT4, MOs4, FRP4, ]
+
+module_grouping_color:
+    prefrontal: red
+    anterolateral: yellow
+    somatomotor: orange
+    visual: lightblue
+    medial: blue
+    temporal: purple
+
+colors: # from allen paper
+    red: [0xff, 0, 0]
+    yellow: [0xff, 0xff, 0x66]
+    orange: [0xf9, 0x92, 0x2b]
+    lightblue: [0x90, 0xbf, 0xf9]
+    blue: [0x52, 0x52, 0xa9]
+    purple: [0x7c, 0x42, 0x9b]
+
+
+region_layer_heights:
+    #prefrontal
+    FRP: {l6: 100, l5: 100, l4: 100, l3: 100, l2: 100, l1: 100, }
+    MOs: {l6: 300, l5: 700, l4: 800, l3: 900, l2: 300, l1: 1000, }
+    ACAd: {l6: 300, l5: 700, l4: 800, l3: 900, l2: 300, l1: 1000, }
+    #:temporal
+    ECT: {'l1': 158.4196, 'l2': 25.648783, 'l3': 244.81703, 'l4': 2.9887738, 'l5': 293.00555, 'l6': 256.90335}
