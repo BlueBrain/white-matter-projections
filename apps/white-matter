@@ -201,10 +201,9 @@ def target_density(ctx, contra):
 def source_mapping_triangles(ctx):
     from white_matter_projections import display, flat_mapping
 
-    ax = plt.gca()
-    ax.set_aspect('equal')
-    flat_map = flat_mapping.load_100()
-    display.plot_source_region_triangles(ax, ctx.obj['config'], flat_map)
+    fig = ctx.obj['figure']()
+    ax = fig.gca()
+    display.plot_source_region_triangles(ax, ctx.obj['config'])
 
     name = 'src_mapping_triangles.png'
     ctx.obj['display'](name)

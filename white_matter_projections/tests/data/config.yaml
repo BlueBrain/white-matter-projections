@@ -1,5 +1,5 @@
 atlas_url: http://voxels.nrinf.ocp.bbp.epfl.ch/api/analytics/atlas/releases/568F4549-82D2-464F-9844-C163FA0C8F8A/
-cache_dir: .
+cache_dir: .cache_directory
 projections_recipe: recipe.yaml
 
 #need a circuit accessible from plan
@@ -13,6 +13,12 @@ module_grouping:
       [ECT, ]]
 
 ignored_regions: [ACAd4, ECT4, MOs4, FRP4, ]
+
+flat_mapping: # these all come from Allen, and aren't in Neuroinformatics yet
+    cortical_map: https://github.com/AllenInstitute/mouse_connectivity_models/raw/master/mcmodels/core/cortical_coordinates/dorsal_flatmap_paths_100.h5
+    brain_regions: http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/annotation_100.nrrd
+    hierarchy: http://api.brain-map.org/api/v2/structure_graph_download/1.json
+
 
 module_grouping_color:
     prefrontal: red

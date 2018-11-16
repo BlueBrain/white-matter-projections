@@ -12,8 +12,7 @@ import utils as test_utils
 
 class TestConfig(object):
     def __init__(self):
-        config_path = os.path.join(test_utils.DATADIR, 'config.yaml')
-        self.config = utils.Config(config_path)
+        self.config = test_utils.get_config()
 
     def test_types(self):
         types = (('region_layer_heights', pd.DataFrame),

@@ -9,6 +9,7 @@ DATADIR = os.path.join(BASEDIR, 'data')
 with open(os.path.join(DATADIR, 'recipe.yaml')) as fd:
     RECIPE = yaml.load(fd)
 
+
 POP_CAT = CategoricalDtype(categories=['POP1_ALL_LAYERS',
                                        'POP2_ALL_LAYERS',
                                        'POP3_ALL_LAYERS',
@@ -66,3 +67,9 @@ HIER_DICT = {"id": 65535,
                   ]}
 ]}
 HIER = Hierarchy(HIER_DICT)
+
+
+def get_config():
+    from white_matter_projections import utils
+    config_path = os.path.join(DATADIR, 'config.yaml')
+    return utils.Config(config_path)

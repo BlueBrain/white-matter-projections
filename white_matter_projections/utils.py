@@ -15,6 +15,7 @@ L = logging.getLogger(__name__)
 
 X, Y, Z = 0, 1, 2
 cX, cY, cZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z]
+XYZ = list('xyz')
 
 
 class Config(object):
@@ -81,6 +82,17 @@ class Config(object):
     def region_layer_heights(self):
         '''converted dictionary in config to DataFrame'''
         return region_layer_heights(self.config['region_layer_heights'])
+
+    @lazy
+    def flat_map(self):
+        '''conversion from voxel space to 2d flat space'''
+        from white_matter_projections import flat_mapping
+        config = self.config['flat_mapping']
+        flat_map = flat_mapping.FlatMap.load(config['cortical_map'],
+                                             config['brain_regions'],
+                                             config['hierarchy'],
+                                             self.config['cache_dir'])
+        return flat_map
 
     @staticmethod
     def _relative_to_config(config_path, path):
