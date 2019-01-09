@@ -22,6 +22,7 @@ setup(
         'lazy>=1.0',
         'matplotlib>=2.0.0',
         'pandas>=0.23.0',
+        'pyarrow>=0.11.1',
         'pyyaml>=3.12',
         'seaborn>=0.8.1',
         'voxcell>=2.4.0',

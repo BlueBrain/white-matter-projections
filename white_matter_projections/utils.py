@@ -5,10 +5,13 @@ import itertools as it
 import logging
 
 from lazy import lazy
-from voxcell.nexus import voxelbrain
-import voxcell
 import numpy as np
 import pandas as pd
+import pyarrow
+from pyarrow import feather
+
+import voxcell
+from voxcell.nexus import voxelbrain
 import yaml
 
 L = logging.getLogger(__name__)
@@ -56,17 +59,25 @@ class Config(object):
         recipe_path = self._relative_to_config(self.config_path, recipe_path)
 
         with open(recipe_path) as fd:
-            recipe = yaml.load(fd)
+            recipe = fd.read()
 
-        recipe = macro.MacroConnections.load_recipe(recipe, self.hierarchy)
+        recipe = macro.MacroConnections.load_recipe(recipe, self.hierarchy,
+                                                    cache_dir=self.cache_dir)
         return recipe
 
     @lazy
     def atlas(self):
         '''atlas referenced in config'''
         atlas = voxelbrain.Atlas.open(self.config['atlas_url'],
-                                      cache_dir=self.config['cache_dir'])
+                                      cache_dir=self.cache_dir)
         return atlas
+
+    @lazy
+    def cache_dir(self):
+        '''get the cache path'''
+        path = self.config['cache_dir']
+        ensure_path(path)
+        return path
 
     @lazy
     def hierarchy(self):
@@ -91,7 +102,7 @@ class Config(object):
         flat_map = flat_mapping.FlatMap.load(config['cortical_map'],
                                              config['brain_regions'],
                                              config['hierarchy'],
-                                             self.config['cache_dir'])
+                                             self.cache_dir)
         return flat_map
 
     @staticmethod
@@ -172,3 +183,35 @@ def get_region_layer_to_id(hier, region, layers):
             L.warning('Got more than one id for region: %s, layer: %d', region, i)
             ret[i] = 0
     return ret
+
+
+def ensure_path(path):
+    '''make sure path exists'''
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+
+def write_frame(path, df):
+    """Write a DataFrame to disk using feather serialization format
+
+    Note: This performs destructive changes to the dataframe, caller must
+    save it if they need an unchanged version
+    """
+    assert path.endswith('.feather'), 'Can only write feathers at the moment'
+
+    df.columns = map(str, df.columns)
+    df.reset_index(drop=True, inplace=True)
+    feather.write_feather(df, path)
+
+
+def read_frame(path, columns=None):
+    '''read a dataframe, optionally specifying columns'''
+    # this is a work around for so that pyarrow doesn't use mmap,
+    # which causes *big* slowdown (more than 10x) on GPFS
+    source = pyarrow.OSFile(path)
+
+    if path.endswith('.feather'):
+        return feather.FeatherReader(source).read_pandas(columns)
+    assert False, 'Need to end with .feather: %s' % path
+    return None

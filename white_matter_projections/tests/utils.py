@@ -2,13 +2,16 @@ import os
 from pandas.api.types import CategoricalDtype
 from voxcell.hierarchy import Hierarchy
 import yaml
+import shutil
+import tempfile
+from contextlib import contextmanager
 
 
 BASEDIR = os.path.dirname(__file__)
 DATADIR = os.path.join(BASEDIR, 'data')
 with open(os.path.join(DATADIR, 'recipe.yaml')) as fd:
-    RECIPE = yaml.load(fd)
-
+    RECIPE_TXT = fd.read()
+RECIPE = yaml.load(RECIPE_TXT)
 
 POP_CAT = CategoricalDtype(categories=['POP1_ALL_LAYERS',
                                        'POP2_ALL_LAYERS',
@@ -73,3 +76,12 @@ def get_config():
     from white_matter_projections import utils
     config_path = os.path.join(DATADIR, 'config.yaml')
     return utils.Config(config_path)
+
+
+@contextmanager
+def tempdir(prefix):
+    temp_dir = tempfile.mkdtemp(prefix=prefix)
+    try:
+        yield temp_dir
+    finally:
+        shutil.rmtree(temp_dir)

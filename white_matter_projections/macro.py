@@ -21,13 +21,17 @@ to which - this is the job the microconnectivity.
 '''
 from collections import defaultdict
 import itertools as it
+import hashlib
+import json
 import logging
-import numpy as np
+import os
+import yaml
 
+import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 from scipy.spatial.distance import squareform
-from white_matter_projections import hierarchy
+from white_matter_projections import hierarchy, utils
 
 L = logging.getLogger(__name__)
 
@@ -36,6 +40,15 @@ class MacroConnections(object):
     '''Load and manipulate macro recipe'''
     HEMISPHERE = CategoricalDtype(  # pylint: disable=unexpected-keyword-arg
         categories=['ipsi', 'contra'])
+    SERIALIZATION_NAME = 'MacroConnections'
+    SERIALIZATION_PATHS = {'populations': 'populations.feather',
+                           'projections': 'projections.feather',
+                           'ptypes': 'ptypes.feather',
+                           'layer_profiles': 'layer_profiles.feather',
+                           'projections_mapping': 'projections_mapping.json',
+                           'ptypes_interaction_matrix': 'ptypes_interaction_matrix',
+                           'synapse_types': 'synapse_types.json',
+                           }
 
     def __init__(self, populations,
                  projections, projections_mapping,
@@ -52,7 +65,7 @@ class MacroConnections(object):
         self.layer_profiles = layer_profiles
         self.synapse_types = synapse_types
 
-    def _check_consistency(self):
+    def check_consistency(self):
         '''check recipe has all the references needed
 
         ex: check that source and target populations exist for ptypes & projections
@@ -249,18 +262,121 @@ class MacroConnections(object):
             ret.loc[tgt][src] = df.density.sum()
         return ret
 
+    def _serialize(self, base_path):
+        '''serialize recipe to `base_path`'''
+        utils.ensure_path(base_path)
+
+        for prop in ('populations', 'projections', 'ptypes', 'layer_profiles',):
+            path = os.path.join(base_path, MacroConnections.SERIALIZATION_PATHS[prop])
+            utils.write_frame(path, getattr(self, prop))
+
+        ptypes_interaction_matrix = {}
+        for k, v in self.ptypes_interaction_matrix.items():
+            ptypes_interaction_matrix[k] = {'index': tuple(v.index),
+                                            'values': tuple(v.values.ravel()),
+                                            }
+
+        def convert_vertices(d):
+            '''convert vertices into dictionary'''
+            ret = {}
+            for k, v in d.items():
+                if k == 'vertices':
+                    ret[k] = tuple(v.ravel())
+                elif isinstance(v, dict):
+                    ret[k] = convert_vertices(v)
+                else:
+                    ret[k] = v
+            return ret
+
+        projections_mapping = convert_vertices(self.projections_mapping)
+
+        def write_json(type_, obj):
+            '''write json'''
+            path = os.path.join(base_path, MacroConnections.SERIALIZATION_PATHS[type_])
+            with open(path, 'w') as fd:
+                json.dump(obj, fd)
+
+        write_json('ptypes_interaction_matrix', ptypes_interaction_matrix)
+        write_json('projections_mapping', projections_mapping)
+        write_json('synapse_types', self.synapse_types)
+
     @classmethod
-    def load_recipe(cls, recipe, hier):
+    def _deserialize(cls, base_path):
+        '''deserialize recipe to `base_path`'''
+        # pylint: disable=too-many-locals
+        def load(name):
+            '''load'''
+            path = os.path.join(base_path, MacroConnections.SERIALIZATION_PATHS[name])
+            return utils.read_frame(path)
+
+        populations = load('populations')
+        projections = load('projections')
+        ptypes = load('ptypes')
+        layer_profiles = load('layer_profiles')
+
+        def load_json(type_):
+            '''load json'''
+            path = os.path.join(base_path, MacroConnections.SERIALIZATION_PATHS[type_])
+            with open(path) as fd:
+                return json.load(fd)
+
+        synapse_types = load_json('synapse_types')
+
+        ptypes_interaction_matrix = {}
+        for k, v in load_json('ptypes_interaction_matrix').items():
+            data = np.array(v['values']).reshape((len(v['index']), len(v['index'])))
+            ptypes_interaction_matrix[k] = pd.DataFrame(data, index=v['index'], columns=v['index'])
+
+        projections_mapping = load_json('projections_mapping')
+
+        def convert_vertices(d):
+            '''convert vertices into useable form'''
+            ret = {}
+            for k, v in d.items():
+                if k == 'vertices':
+                    ret[k] = np.array(v).reshape((3, 2))
+                elif isinstance(v, dict):
+                    ret[k] = convert_vertices(v)
+                else:
+                    ret[k] = v
+            return ret
+        projections_mapping = convert_vertices(projections_mapping)
+
+        ret = cls(populations,
+                  projections, projections_mapping,
+                  ptypes, ptypes_interaction_matrix,
+                  layer_profiles, synapse_types)
+
+        return ret
+
+    @classmethod
+    def load_recipe(cls, recipe_yaml, hier, cache_dir=None):
         '''load population/projection/p-type recipe
 
         Args:
 
-            recipe(dict): the recipe following format
+            recipe_yaml(str): the recipe following format, in yaml
             hier(voxcell.hierarchy.Hierarchy): hierarchy to verify population acronyms against
 
         Returns:
             instance of MacroConnections
         '''
+        # pylint: disable=too-many-locals
+        m = hashlib.sha256()
+        m.update(recipe_yaml)
+        hexdigest = m.hexdigest()
+
+        if cache_dir is not None:
+            try:
+                path = os.path.join(cache_dir, MacroConnections.SERIALIZATION_NAME, hexdigest)
+                ret = cls._deserialize(path)
+                L.debug('Using serialized recipe from %s', path)
+                return ret
+            except:  # noqa  # pylint: disable=bare-except
+                pass
+
+        recipe = yaml.load(recipe_yaml)
+
         pop_cat, populations = _parse_populations(recipe['populations'], hier)
         projections, projections_mapping = _parse_projections(recipe['projections'], pop_cat)
         ptypes, ptypes_interaction_matrix = _parse_ptypes(recipe['p-types'], pop_cat)
@@ -273,13 +389,21 @@ class MacroConnections(object):
                   ptypes, ptypes_interaction_matrix,
                   layer_profiles, synapse_types)
 
-        ret._check_consistency()  # pylint: disable=protected-access
+        ret.check_consistency()
+
+        if cache_dir is not None:
+            path = os.path.join(cache_dir, MacroConnections.SERIALIZATION_NAME, hexdigest)
+            ret._serialize(path)  # pylint: disable=protected-access
+            with open(os.path.join(path, 'recipe.yaml'), 'w') as fd:
+                fd.write(recipe_yaml)
 
         return ret
 
     def __repr__(self):
         return 'MacroConnections: [populations: {}, projections: {}, ptypes: {}]'.format(
             len(self.populations), len(self.projections), len(self.ptypes))
+
+    __str__ = __repr__
 
 
 def _parse_populations(populations, hier):

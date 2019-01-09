@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 '''white-matter application'''
+from __future__ import print_function
 
 import logging
 import itertools as it
@@ -226,14 +227,21 @@ def stats(ctx, population):
     sources = recipe.projections.query('source_population == @population')
     if len(sources):
         print_green('Projections with population as source:')
-        cols = ['target_population', 'projection_name', 'target_density']
-        print(sources[cols])
+        out = sources.sort_values('target_density').to_string(
+            max_rows=None,
+            index=False,
+            columns=['target_population', 'projection_name', 'target_density'])
+        print(out)
 
     targets = recipe.projections.query('target_population == @population')
     if len(targets):
         print_green('Projections with population as target:')
-        cols = ['source_population', 'projection_name', 'target_density']
-        print(targets[cols])
+
+        out = targets.sort_values('target_density').to_string(
+            max_rows=None,
+            index=False,
+            columns=['source_population', 'projection_name', 'target_density'])
+        print(out)
 
 
 if __name__ == '__main__':
