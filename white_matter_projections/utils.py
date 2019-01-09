@@ -14,6 +14,12 @@ import voxcell
 from voxcell.nexus import voxelbrain
 import yaml
 
+try:
+    from functools import lru_cache
+except ImportError:
+    from backports.functools_lru_cache import lru_cache
+
+
 L = logging.getLogger(__name__)
 
 X, Y, Z = 0, 1, 2
@@ -104,6 +110,18 @@ class Config(object):
                                              config['hierarchy'],
                                              self.cache_dir)
         return flat_map
+
+    @lru_cache()
+    def cells(self, include_all=False):
+        '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
+        cells = self.circuit.cells.get()
+
+        if not include_all:
+            projecting_mtypes = self.config['projecting_mtypes']
+            projecting_mtypes = projecting_mtypes  # trick pylint due to df.query
+            cells = cells.query('mtype in @projecting_mtypes')
+
+        return cells
 
     @staticmethod
     def _relative_to_config(config_path, path):

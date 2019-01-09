@@ -1,10 +1,12 @@
 import os
+import shutil
+import tempfile
+import yaml
+
+from contextlib import contextmanager
 from pandas.api.types import CategoricalDtype
 from voxcell.hierarchy import Hierarchy
 import yaml
-import shutil
-import tempfile
-from contextlib import contextmanager
 
 
 BASEDIR = os.path.dirname(__file__)
@@ -85,3 +87,7 @@ def tempdir(prefix):
         yield temp_dir
     finally:
         shutil.rmtree(temp_dir)
+
+
+def gte_(lhs, rhs):
+    assert lhs <= rhs, 'lhs: %s not <= rhs: %s' % (lhs, rhs)

@@ -20,6 +20,7 @@ setup(
         'bluepy>=0.12.5',
         'click>=6.0',
         'lazy>=1.0',
+        'backports.functools_lru_cache>=1.5',
         'matplotlib>=2.0.0',
         'pandas>=0.23.0',
         'pyarrow>=0.11.1',

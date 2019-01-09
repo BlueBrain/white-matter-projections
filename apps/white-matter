@@ -3,7 +3,7 @@
 from __future__ import print_function
 
 import logging
-import itertools as it
+import os
 
 import click
 import numpy as np
@@ -16,9 +16,12 @@ L = logging.getLogger(__name__)
 plt = None
 
 
-def print_green(s):
+def print_color(s, *args, **kwargs):
     '''output text in green'''
-    click.echo(click.style(s, fg='green'))
+    if args:
+        s = s % args
+    color = kwargs.get('color', 'green')
+    click.echo(click.style(s, fg=color))
 
 
 @click.group()
@@ -37,18 +40,25 @@ def cli(ctx, verbose, interactive_matplotlib):
 
     if interactive_matplotlib:
         def figure():
+            '''get a figure'''
             return plt.figure()
+
         def display(_):
+            '''display a figure'''
             plt.show()
     else:
         def figure():
+            '''get a figure'''
+            plt.close('all')
             fig = plt.gcf()
             fig.set_size_inches(20, 20)
             fig.tight_layout()
             return fig
+
         def display(name):
+            '''display a figure'''
             plt.savefig(name)
-            click.echo(click.style('Wrote: %s' % name, fg='green'))
+            print_color('Wrote: %s', name)
 
 
     ctx.obj['display'] = display
@@ -67,21 +77,12 @@ def cli(ctx, verbose, interactive_matplotlib):
 def repl(ctx, config):
     import IPython
 
-    ctx.obj['config'] = _c = utils.Config(config)
+    config = utils.Config(config)
 
-    config = _c.config
-    atlas = _c.atlas
-    hier = _c.hierarchy
-    recipe = _c.recipe
-    layer_heights = _c.region_layer_heights
-    del _c
+    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
+                                                         config.recipe.layer_profiles)
 
-    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
-
-    from bluepy.v2.circuit import Circuit
-    cells = Circuit(config['circuit_config']).cells.get()
-
-    IPython.embed(banner1='You have access to: atlas, cells, recipe, layer_heights, norm_layer_profiles')
+    IPython.embed(banner1='You have access to: config, norm_layer_profiles')
 
 
 @cli.group()
@@ -215,33 +216,103 @@ def source_mapping_triangles(ctx):
 @click.pass_context
 def stats(ctx, population):
     config = ctx.obj['config']
-    recipe, circuit = config.recipe, config.circuit
 
-    cells = circuit.cells.get()
-    region_names = set(recipe.populations.query('population == @population').subregion)  # noqa pylint: disable=unused-variable
+    region_names = set(config.recipe.populations.query('population == @population').subregion)
+    region_names = region_names  # trick pylint
 
-    region_cells = cells.query('region in @region_names')
-
-    print_green('Cells in population: %d' % len(region_cells))
-
-    sources = recipe.projections.query('source_population == @population')
+    sources = config.recipe.projections.query('source_population == @population')
     if len(sources):
-        print_green('Projections with population as source:')
+        region_cells = config.cells().query('region in @region_names')
+        print_color('Potential source cells in population: %d', len(region_cells))
+
+        print_color('Projections with population as source:')
         out = sources.sort_values('target_density').to_string(
             max_rows=None,
             index=False,
             columns=['target_population', 'projection_name', 'target_density'])
         print(out)
 
-    targets = recipe.projections.query('target_population == @population')
+    targets = config.recipe.projections.query('target_population == @population')
     if len(targets):
-        print_green('Projections with population as target:')
+        region_cells = config.cells(include_all=True).query('region in @region_names')
+        print_color('Potential target cells in population: %d', len(region_cells))
 
+        print_color('Projections with population as target:')
         out = targets.sort_values('target_density').to_string(
             max_rows=None,
             index=False,
             columns=['source_population', 'projection_name', 'target_density'])
         print(out)
+
+
+@cli.group()
+@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.option('-o', '--output', required=True)
+@click.pass_context
+def micro(ctx, config, output):
+    ctx.obj['config'] = utils.Config(config)
+    ctx.obj['output'] = output
+
+    if not os.path.exists(output):
+        os.makedirs(output)
+
+
+@micro.command()
+@click.pass_context
+def allocate(ctx):
+    from white_matter_projections import micro
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    allocations_path = os.path.join(output, 'allocations.h5')
+    if os.path.exists(allocations_path):
+        print_color('Already have created %s, delete it if it needs to be recreated',
+                    allocations_path, color='red')
+        return
+
+    allocations = micro.allocate_projections(config.recipe, config.cells())
+
+    micro.save_allocations(allocations_path, allocations)
+
+
+@cli.group()
+@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.option('-o', '--output', required=True)
+@click.pass_context
+def analysis(ctx, config, output):
+    '''analysis'''
+    ctx.obj['config'] = utils.Config(config)
+    assert os.path.exists(output)
+    ctx.obj['output'] = output
+
+
+@analysis.command()
+@click.option('-p', '--population', required=True, default='ACAd_6')
+@click.pass_context
+def allocation_stats(ctx, population):
+    from white_matter_projections import micro
+    config, output = ctx.obj['config'], ctx.obj['output']
+    recipe = config.recipe
+
+    allocations_path = os.path.join(output, 'allocations.h5')
+    allocations = micro.load_allocations(allocations_path, config.recipe.projections_mapping)
+
+    fractions, interactions = micro.allocation_stats(recipe.ptypes,
+                                                     recipe.populations,
+                                                     recipe.ptypes_interaction_matrix,
+                                                     config.cells(),
+                                                     allocations,
+                                                     population)
+
+    print_color('Population Fractions')
+    print(fractions.to_string(max_rows=None))
+
+    print('\n')
+
+    print_color('Population Interactions')
+    print(interactions
+          .sort_values('absolute_difference', ascending=False)
+          .to_string(max_rows=None))
+    print_color('Mean absolute difference: %0.2f', interactions['absolute_difference'].abs().mean())
 
 
 if __name__ == '__main__':
