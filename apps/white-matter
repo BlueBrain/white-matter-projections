@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 '''white-matter application'''
 from __future__ import print_function
+from contextlib import contextmanager
 
 import logging
 import os
@@ -30,6 +31,7 @@ def print_color(s, *args, **kwargs):
 @click.option('-m', '--interactive-matplotlib', is_flag=True)
 @click.pass_context
 def cli(ctx, verbose, interactive_matplotlib):
+    '''cli'''
     global plt
     if not interactive_matplotlib:
         import matplotlib
@@ -39,29 +41,28 @@ def cli(ctx, verbose, interactive_matplotlib):
     plt = matplotlib.pyplot
 
     if interactive_matplotlib:
-        def figure():
+        @contextmanager
+        def figure(name):
             '''get a figure'''
-            return plt.figure()
-
-        def display(_):
-            '''display a figure'''
+            yield plt.figure()
             plt.show()
     else:
-        def figure():
+        @contextmanager
+        def figure(name):
             '''get a figure'''
             plt.close('all')
             fig = plt.gcf()
             fig.set_size_inches(20, 20)
             fig.tight_layout()
-            return fig
 
-        def display(name):
-            '''display a figure'''
+            yield fig
+
+            if not name.endswith('.png'):
+                name += '.png'
+
             plt.savefig(name)
             print_color('Wrote: %s', name)
 
-
-    ctx.obj['display'] = display
     ctx.obj['figure'] = figure
 
     logging.basicConfig(level=(logging.WARNING,
@@ -78,7 +79,6 @@ def repl(ctx, config):
     import IPython
 
     config = utils.Config(config)
-
     norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
                                                          config.recipe.layer_profiles)
 
@@ -103,33 +103,31 @@ def stacked_target_density(ctx, target):
         2. LAYER (or subregion, i.e. 5it and 5pt are separate)
         3. REGION
     '''
-    recipe = ctx.obj['config'].recipe
-    layer_heights = ctx.obj['config'].region_layer_heights
+    config, recipe = ctx.obj['config'], ctx.obj['config'].recipe
 
-    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
+    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
+                                                         recipe.layer_profiles)
 
-    fig = ctx.obj['figure']()
-    ax = fig.gca()
-    stacked_density = recipe.get_target_region_density_sources(norm_layer_profiles, target)
-    stacked_density.plot(kind='bar', stacked=True, ax=ax)
-    ax.set_title('Vertical Profile of incoming regions for target: ' + target)
-    ctx.obj['display']('stacked_region_%s.png' % target)
+    name = 'stacked_region_%s' % target
+    with ctx.obj['figure'](name) as fig:
+        ax = fig.gca()
+        stacked_density = recipe.get_target_region_density_sources(norm_layer_profiles, target)
+        stacked_density.plot(kind='bar', stacked=True, ax=ax)
+        ax.set_title('Vertical Profile of incoming regions for target: ' + target)
 
 
 @macro.command()
 @click.option('-t', '--target', default='FRP')
 @click.pass_context
 def stacked_target_density_module(ctx, target):
-    config = ctx.obj['config'].config
-    recipe = ctx.obj['config'].recipe
-
-    layer_heights = utils.region_layer_heights(config['region_layer_heights'])
-    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
-
     import altair as alt
-    modules = config['module_grouping']
+    config, recipe = ctx.obj['config'], ctx.obj['config'].recipe
+
+    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
+                                                         recipe.layer_profiles)
+
     stacked_density = recipe.get_target_region_density_modules(
-        norm_layer_profiles, target, modules)
+        norm_layer_profiles, target, config.config['module_grouping'])
 
     stacked_density = (stacked_density
                        .T
@@ -157,21 +155,16 @@ def stacked_target_density_module(ctx, target):
 @click.option('--contra', is_flag=True)
 def connectivity(ctx, contra):
     from white_matter_projections import display
-    config = ctx.obj['config'].config
-    recipe = ctx.obj['config'].recipe
+    config = ctx.obj['config']
 
     hemisphere = 'contra' if contra else 'ipsi'
-    df = recipe.get_connection_density_map(hemisphere)
+    df = config.recipe.get_connection_density_map(hemisphere)
+    df = utils.perform_module_grouping(df, config.config['module_grouping'])
 
-    df = utils.perform_module_grouping(df, config['module_grouping'])
-
-    fig = ctx.obj['figure']()
-
-    title = 'Connection synapse density - ' + 'Contralateral' if contra else 'Ipsilateral'
-    display.draw_connectivity(fig, df, title, config['module_grouping_color'])
-
-    name = 'connectivity_contra.png' if contra else 'connectivity.png'
-    ctx.obj['display'](name)
+    name = 'connectivity_%s' % hemisphere
+    with ctx.obj['figure'](name) as fig:
+        title = 'Connection synapse density - %s' % hemisphere
+        display.draw_connectivity(fig, df, title, config.config['module_grouping_color'])
 
 
 @macro.command()
@@ -179,36 +172,32 @@ def connectivity(ctx, contra):
 @click.option('--contra', is_flag=True)
 def target_density(ctx, contra):
     import seaborn as sns
-    recipe = ctx.obj['config'].recipe
-    layer_heights = ctx.obj['config'].region_layer_heights
+    config = ctx.obj['config']
 
-    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
+    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
+                                                         config.recipe.layer_profiles)
 
     hemisphere = 'contra' if contra else 'ipsi'
-    df = recipe.get_target_region_density(norm_layer_profiles, hemisphere)
+    df = config.recipe.get_target_region_density(norm_layer_profiles, hemisphere)
 
     cmap = sns.diverging_palette(220, 20, sep=20, as_cmap=True, center='light')
     cmap.set_bad(color='white')
     df = df.replace(0., np.NaN)
 
-    fig = ctx.obj['figure']()
-    ax = fig.gca()
-    sns.heatmap(df, cmap=cmap, square=True, xticklabels=1, yticklabels=1, linewidth=0.5, ax=ax)
-    name = 'target_density_contra.png' if contra else 'target_density.png'
-    ctx.obj['display'](name)
+    name = 'target_density_contra' if contra else 'target_density_ipsi'
+    with ctx.obj['figure'](name) as fig:
+        ax = fig.gca()
+        sns.heatmap(df, cmap=cmap, square=True, xticklabels=1, yticklabels=1, linewidth=0.5, ax=ax)
 
 
 @macro.command()
 @click.pass_context
 def source_mapping_triangles(ctx):
-    from white_matter_projections import display, flat_mapping
+    from white_matter_projections import display
 
-    fig = ctx.obj['figure']()
-    ax = fig.gca()
-    display.plot_source_region_triangles(ax, ctx.obj['config'])
-
-    name = 'src_mapping_triangles.png'
-    ctx.obj['display'](name)
+    name = 'src_mapping_triangles'
+    with ctx.obj['figure'](name) as fig:
+        display.plot_source_region_triangles(fig.gca(), ctx.obj['config'])
 
 
 @macro.command()
@@ -252,9 +241,7 @@ def stats(ctx, population):
 def micro(ctx, config, output):
     ctx.obj['config'] = utils.Config(config)
     ctx.obj['output'] = output
-
-    if not os.path.exists(output):
-        os.makedirs(output)
+    utils.ensure_path(output)
 
 
 @micro.command()
@@ -290,11 +277,10 @@ def analysis(ctx, config, output):
 @click.pass_context
 def allocation_stats(ctx, population):
     from white_matter_projections import micro
-    config, output = ctx.obj['config'], ctx.obj['output']
-    recipe = config.recipe
+    config, recipe, output = ctx.obj['config'], ctx.obj['config'].recipe, ctx.obj['output']
 
     allocations_path = os.path.join(output, 'allocations.h5')
-    allocations = micro.load_allocations(allocations_path, config.recipe.projections_mapping)
+    allocations = micro.load_allocations(allocations_path, recipe.projections_mapping)
 
     fractions, interactions = micro.allocation_stats(recipe.ptypes,
                                                      recipe.populations,
