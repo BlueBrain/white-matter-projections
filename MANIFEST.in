@@ -1,3 +1,4 @@
-graft tests
+graft white_matter_projections/tests
+graft white_matter_projections/data
 
 global-exclude *.py[co] .DS_Store

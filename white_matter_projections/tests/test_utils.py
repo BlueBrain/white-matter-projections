@@ -141,3 +141,6 @@ def test_population2region():
 #    ok_(False)
 #
 #
+def test_find_executable():
+    ok_('bin/sh' in utils.find_executable('sh'))
+    eq_(None, utils.find_executable('a_fake_executable_which_does_not_exist'))

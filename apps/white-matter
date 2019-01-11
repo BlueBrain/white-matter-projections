@@ -6,12 +6,12 @@ from contextlib import contextmanager
 from glob import glob
 import logging
 import os
+import sys
 
 import click
 import numpy as np
 import pandas as pd
 from white_matter_projections import utils
-
 
 L = logging.getLogger(__name__)
 # Allow for matplotlib to be interactive or writing to file
@@ -386,6 +386,42 @@ def concat_assignments(ctx, target_population, side):
         syns.reset_index(drop=True, inplace=True)
         L.debug('Writing %s', output_path)
         utils.write_frame(output_path, syns)
+
+
+@micro.command()
+@click.pass_context
+@click.option('--working-dir', default=os.path.abspath('.'))
+def create_sbatch(ctx, working_dir):
+    from white_matter_projections import slurm
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    output = os.path.abspath(output)
+
+    sbatch_output = os.path.join(output, 'slurm')
+    utils.ensure_path(sbatch_output)
+
+    log_location = os.path.join(output, 'logs')
+    utils.ensure_path(log_location)
+
+    slurm_conf = dict(account='proj68',
+                      partition='prod',
+                      constraint='uc3|uc4',
+                      memory='0G',
+                      cpus=72,
+                      log_location=log_location
+                      )
+    app_path = os.path.abspath(sys.argv[0])
+
+    for stage in slurm.STAGES:
+        slurm.write_sbatch_stage(
+            slurm_conf,
+            app_path,
+            config.config_path,
+            working_dir,
+            output,
+            sbatch_output,
+            stage,
+            config.regions)
 
 
 @cli.group()

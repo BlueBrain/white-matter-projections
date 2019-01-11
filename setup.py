@@ -18,6 +18,7 @@ setup(
     license='BBP-internal-confidential',
     install_requires=[
         'backports.functools_lru_cache>=1.5',
+        'jinja2>=2.10',
         'bluepy>=0.12.5',
         'click>=6.0',
         'lazy>=1.0',

@@ -1,11 +1,10 @@
 '''utils'''
 import collections
 import hashlib
-import json
-import os
-
 import itertools as it
+import json
 import logging
+import os
 
 from lazy import lazy
 import numpy as np
@@ -362,3 +361,12 @@ def population2region(populations, population_name):
     populations = populations.query('population == @population_name')
     assert len(populations), 'Population %s not found in populations' % population_name
     return populations.iloc[0].region
+
+
+def find_executable(executable):
+    '''use PATH to look for `executable`'''
+    for path in os.environ['PATH'].split(':'):
+        path = os.path.join(path, executable)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None

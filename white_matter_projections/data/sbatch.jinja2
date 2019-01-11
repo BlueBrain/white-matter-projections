@@ -1,0 +1,34 @@
+#!/bin/sh
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task={{ cpus }}
+#SBATCH --mem={{ memory}}
+#SBATCH --account={{ account}}
+#SBATCH --partition={{ partition}}
+#SBATCH --job-name={{ name}}
+#SBATCH --constraint={{ constraint }}
+#SBATCH --time=12:00:00
+#SBATCH --output={{ log_location }}/slurm-%j_{{ name }}.out
+#SBATCH --error={{ log_location }}/slurm-%j_{{ name }}.err
+#SBATCH --workdir={{ working_directory }}
+#SBATCH --signal=B:USR1@120
+
+# { handle timeouts by re-enqueing the job
+SBATCH_PATH='{{sbatch_path}}'
+reenqueue_on_timeout()
+{
+    echo "Got a timeout, re-enqueing with $SBATCH_PATH"
+    sbatch "$SBATCH_PATH"
+}
+trap 'reenqueue_on_timeout' USR1
+# }
+
+hostname
+date
+env
+
+set -x
+
+( {{ cmd }} ) &
+wait
