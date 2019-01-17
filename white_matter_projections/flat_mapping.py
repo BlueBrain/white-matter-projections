@@ -259,18 +259,21 @@ def _paths_intersection_distances(bounds, path_fits):
     return dist
 
 
-def _voxel2flat(config_path, path_fits, locs):
+def _voxel2flat_helper(config_path, path_fits, locs):
+    '''helper, so the config path can be passed, and doesn't need to be serialized'''
+    config = Config(config_path)
+    return _voxel2flat(config.flat_map, config.regions, path_fits, locs)
+
+
+def _voxel2flat(flat_map, regions, path_fits, locs):
     '''for each voxel, find the corresponding flat 2d position'''
     # avoid excessive serialization
-    config = Config(config_path)
-    flat_map = config.flat_map
 
-    center_line_3d = int(flat_map.center_line_3d /
-                         flat_map.brain_regions.voxel_dimensions[Z])
+    center_line_3d = flat_map.center_line_3d / flat_map.brain_regions.voxel_dimensions[Z]
 
     id_to_top_region = {id_: region
-                        for region in config.regions
-                        for id_ in config.flat_map.hierarchy.collect('acronym', region, 'id')}
+                        for region in regions
+                        for id_ in flat_map.hierarchy.collect('acronym', region, 'id')}
     id_to_top_region = pd.DataFrame.from_dict(id_to_top_region,
                                               orient='index',
                                               columns=['region', ])
@@ -283,7 +286,7 @@ def _voxel2flat(config_path, path_fits, locs):
         we check if the parent region of loc (ie: FRP_l6 -> FRP) is in the
         set of parents of the paths
         '''
-        loc_id = config.flat_map.brain_regions.raw[tuple(loc)]
+        loc_id = flat_map.brain_regions.raw[tuple(loc)]
         loc_region = id_to_top_region.loc[loc_id].values[0]
 
         paths = flat_map.paths[path_locs, :]
@@ -327,6 +330,20 @@ def _voxel2flat(config_path, path_fits, locs):
     return ret
 
 
+def _create_voxcell_from_xy(locations, flat_map, flat_xy):
+    nz = np.count_nonzero(flat_xy) // 2
+    if len(locations) > nz:
+        L.debug('did not find values for %d of %d voxels (%0.2f percent)',
+                len(locations) - nz, len(locations),
+                (len(locations) - nz) / len(locations))
+
+    ret = np.zeros_like(flat_map.brain_regions.raw)
+    ret[tuple(locations.T)] = np.ravel_multi_index(tuple(flat_xy.T.astype(int)),
+                                                   flat_map.view_lookup.shape)
+    ret = flat_map.brain_regions.with_data(ret)
+    return ret
+
+
 def get_voxel_to_flat_mapping(config, n_jobs=-2, chunks=None):
     '''get the full voxel to flat mapping of regions in config.regions'''
     flat_map = config.flat_map
@@ -337,8 +354,7 @@ def get_voxel_to_flat_mapping(config, n_jobs=-2, chunks=None):
 
     path_fits = _fit_paths(flat_map)
 
-    locations = flat_map.brain_regions.raw
-    locations = np.array(np.nonzero(np.isin(locations, ids))).T
+    locations = np.array(np.nonzero(np.isin(flat_map.brain_regions.raw, ids))).T
 
     L.debug('There are %d locations', len(locations))
 
@@ -351,18 +367,10 @@ def get_voxel_to_flat_mapping(config, n_jobs=-2, chunks=None):
     if chunks is None:
         chunks = p._effective_n_jobs()  # pylint: disable=protected-access
 
-    worker = delayed(_voxel2flat)
+    worker = delayed(_voxel2flat_helper)
     flat_xy = p(worker(config.config_path, path_fits, locs)
                 for locs in np.array_split(locations, chunks, axis=0))
 
     flat_xy = np.vstack(flat_xy)
-
-    L.debug('did not find values for %d of %d voxels',
-            len(locations) - np.count_nonzero(flat_xy) // 2, len(locations))
-
-    ret = np.zeros_like(flat_map.brain_regions.raw)
-    ret[tuple(locations.T)] = np.ravel_multi_index(tuple(flat_xy.T.astype(int)),
-                                                   flat_map.view_lookup.shape)
-    ret = flat_map.brain_regions.with_data(ret)
-
+    ret = _create_voxcell_from_xy(locations, flat_map, flat_xy)
     return ret

@@ -1,33 +1,44 @@
 '''sampling of the circuit morphologies to create potential synapses based on segments'''
 import os
 import logging
+from glob import glob
+
 import numpy as np
 import pandas as pd
 
 from joblib import Parallel, delayed
 from neurom import NeuriteType
 from projectionizer import synapses
-from white_matter_projections import utils
+from projectionizer.utils import (ErrorCloseToZero, normalize_probability,
+                                  )
+from white_matter_projections import utils, mapping
 
 
 L = logging.getLogger(__name__)
 SAMPLE_PATH = 'SAMPLED'
-SEGMENT_COLUMNS = ['section_id', 'segment_id', 'segment_length',
-                   'segment_x1', 'segment_x2',
-                   'segment_y1', 'segment_y2',
-                   'segment_z1', 'segment_z2',
-                   'tgid']
+
+SEGMENT_START_COLS = ['segment_x1', 'segment_y1', 'segment_z1', ]
+SEGMENT_END_COLS = ['segment_x2', 'segment_y2', 'segment_z2', ]
+SEGMENT_COLUMNS = sorted(['section_id', 'segment_id', 'segment_length', ] +
+                         SEGMENT_START_COLS + SEGMENT_END_COLS +
+                         ['tgid']
+                         )
 
 
-def _full_sample_worker(min_xyzs, index_path, dims):
-    '''
+def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
+    '''for every voxel defined by the lower coordinate in min_xzys, gather segments
+
+    Args:
+        min_xyzs(np.array of (Nx3):
+        index_path(str): path to FlatIndex indices
+        voxel_dimensions(1x3 array): voxel dimensions
     '''
     start_cols = ['Segment.X1', 'Segment.Y1', 'Segment.Z1']
     end_cols = ['Segment.X2', 'Segment.Y2', 'Segment.Z2', ]
 
     chunks = []
     for min_xyz in min_xyzs:
-        max_xyz = min_xyz + dims
+        max_xyz = min_xyz + voxel_dimensions
         df = synapses._sample_with_flat_index(  # pylint: disable=protected-access
             index_path, min_xyz, max_xyz)
 
@@ -128,3 +139,242 @@ def sample_all(output, index_base, population, brain_regions):
         df = _full_sample_parallel(brain_regions, id_, index_path)
         if df is not None:
             utils.write_frame(path, df)
+
+
+def _load_sample_all_worker(sample_path, center_line_3d):
+    '''read `sample_path`, split into left and right based on `center_line_3d`'''
+    syns = utils.read_frame(sample_path)
+
+    midpoints = 0.5 * (syns['segment_z1'] + syns['segment_z2'])
+    syns_left = syns[midpoints <= center_line_3d].copy()
+    syns_right = syns[midpoints > center_line_3d].copy()
+
+    return {'left': syns_left.reset_index(drop=True),
+            'right': syns_right.reset_index(drop=True),
+            }
+
+
+def load_all_samples(path, region_tgt, center_line_3d):
+    '''load samples for `region_tgt` from `path`, in parallel, separating into left/right'''
+    worker = delayed(_load_sample_all_worker)
+    files = glob(os.path.join(path, SAMPLE_PATH, '%s_*.feather' % region_tgt))
+
+    work, layers = [], []
+    for file_ in files:
+        work.append(worker(file_, center_line_3d))
+        layers.append(os.path.basename(file_).split('_')[-1][:-8])
+
+    # reduce data serialization by only using threading ~6m -> 1.3m for VISp
+    kwargs = {'n_jobs': len(work),
+              'backend': 'threading',
+              }
+    work = Parallel(**kwargs)(work)
+    ret = dict(zip(layers, work))
+    return ret
+
+
+def _add_random_position_and_offset_worker(segments, output, sl):
+    '''Take start and end positions of `segments`, and create a random synapse position
+
+    Args:
+        segments(np.array Nx7): 0:3 starts, 3:6 ends, 6: segment_length
+        output(np.array to write to): Nx4: :3 columns are XYZ position, 3 is the offset
+        sl(slice): DataFrame input slice and output slice
+
+    Note: output is written modified
+    '''
+    starts, ends, segment_length = segments[sl, 0:3], segments[sl, 3:6], segments[sl, 6]
+    alpha = np.random.random_sample((starts.shape[0], 1))
+    output[sl, :3] = alpha * starts + (1. - alpha) * ends
+    output[sl, 3] = alpha.ravel() * segment_length  # segment_offset
+
+
+def _add_random_position_and_offset(segments, chunk_size=1000000, n_jobs=-2):
+    '''parallelize creating a synapse position on a segments
+
+    Read _add_random_position_and_offset_worker for more info
+    '''
+    cols = SEGMENT_START_COLS + SEGMENT_END_COLS + ['segment_length']
+    data = segments[cols].values
+    slices = [slice(start, start + chunk_size)
+              for start in range(0, len(segments), chunk_size)]
+    output = np.empty((len(segments), 4), dtype=np.float32)
+    worker = delayed(_add_random_position_and_offset_worker)
+    p = Parallel(n_jobs=n_jobs,
+                 backend='threading',
+                 # 'verbose': 60,
+                 )
+    p(worker(data, output, sl) for sl in slices)
+
+    syns = pd.DataFrame(output, columns=['x', 'y', 'z', 'segment_offset'])
+    syns['segment_length'] = segments['segment_length'].values
+    for c in ('section_id', 'segment_id', 'tgid', ):
+        syns[c] = pd.to_numeric(segments[c].values, downcast='unsigned')
+
+    return syns
+
+
+def _mask_xyzs_by_vertices_helper(config_path, vertices, xyzs, sl):
+    '''wrap _mask_xyzs_by_vertices so full config doesn't need to be serialized'''
+    config = utils.Config(config_path)
+    return _mask_xyzs_by_vertices(config, vertices, xyzs, sl)
+
+
+def _mask_xyzs_by_vertices(config, vertices, xyzs, sl):
+    '''create mask of `xyzs` that fall whithin `vertices`
+
+    Args:
+        config(utils.Config): configuration
+        vertices(array): vertices in flat_space such where the rows of `xyzs` are masked to
+        xyzs(array of positions): one position per row
+        sl(slice): to operate on
+
+    Returns:
+        array of bools masking xyzs by rows
+    '''
+    position_to_voxel = mapping.PositionToVoxel(config.flat_map.brain_regions)
+    voxel_to_flat = mapping.VoxelToFlat(config.voxel_to_flat(), config.flat_map.view_lookup.shape)
+
+    voxel_ijks, offsets = position_to_voxel(xyzs[sl])
+    pos, offset = voxel_to_flat(voxel_ijks, offsets)
+
+    mask = utils.in_2dtriangle(vertices, pos + offset)
+
+    return mask
+
+
+def mask_xyzs_by_vertices(config_path, vertices, xyzs, n_jobs=36, chunk_size=1000000):
+    '''parallize find `xyzs` that are in `vertices`
+
+    Args:
+        config_path(str): path to config file
+        vertices(array): vertices in flat_space such where the rows of `xyzs` are masked to
+        xyzs(array of positions): one position per row
+        n_jobs(int): number of jobs
+        chunk_size(int): size of the chunks to be passed off
+    '''
+    p = Parallel(n_jobs=n_jobs,
+                 # the multiprocessing backend is 50x faster than 'loky';
+                 # I *think* it has to do w/ loky startup being slow GPFS
+                 # coupled w/ its use of semaphores, but I haven't been able
+                 # to prove that.  For debugging, 'loky' is *much* nicer, use
+                 # that when you can
+                 backend='multiprocessing',
+                 # verbose=51
+                 )
+    worker = delayed(_mask_xyzs_by_vertices_helper)
+    slices = [slice(start, start + chunk_size)
+              for start in range(0, len(xyzs), chunk_size)]
+    masks = p(worker(config_path, vertices, xyzs, sl) for sl in slices)
+    mask = np.hstack(masks)
+    return mask
+
+
+def calculate_constrained_volume(config, brain_regions, region_id, vertices):
+    '''calculate the total volume in layer 'constrained' by vertices'''
+    idx = np.array(np.nonzero(brain_regions.raw == region_id)).T
+    if len(idx) == 0:
+        return 0
+    xyzs = brain_regions.indices_to_positions(idx)
+    count = np.sum(_mask_xyzs_by_vertices(config, vertices, xyzs, slice(None)))
+    return count * brain_regions.voxel_volume
+
+
+def _subsample_per_source(config, vertices,
+                          projection_name, densities, hemisphere,
+                          segment_samples, output):
+    '''Given all region's `segment_samples`, pick segments that satisfy the
+    desired density in constrained by `vertices`
+
+    Args:
+        config(utils.Config): configuration
+        vertices(array): vertices in flat_space to constrain the samples
+        projection_name(str): name of projection
+        densities(DataFrame): with columns 'layer_tgt', 'id_tgt', 'density'
+        hemisphere(str): either 'ipsi' or 'contra'
+        segment_samples(dict of 'left'/'right'): full sample of regions's segments
+        output(path): where to output files
+    '''
+    # pylint: disable=too-many-locals
+
+    center_line = config.flat_map.center_line_2d
+    brain_regions = config.atlas.load_data('brain_regions')
+
+    for side in ('left', 'right'):
+        base_path = os.path.join(output, SAMPLE_PATH, side)
+        utils.ensure_path(base_path)
+        path = os.path.join(base_path, projection_name + '.feather')
+        if os.path.exists(path):
+            L.debug('Already did: %s', path)
+            continue
+
+        L.debug('Doing %s[%s]', projection_name, side)
+        if utils.is_mirror(side, hemisphere):
+            mirrored_vertices = utils.mirror_vertices_y(vertices, center_line)
+        else:
+            mirrored_vertices = vertices.copy()
+
+        groupby = densities.groupby(['layer_tgt', 'id_tgt']).density.sum().iteritems()
+        all_syns = []
+        for (layer, id_tgt), density in groupby:
+            volume = calculate_constrained_volume(config, brain_regions, id_tgt, mirrored_vertices)
+            if volume <= 0.1:
+                continue
+
+            syns = _add_random_position_and_offset(segment_samples[layer][side])
+
+            mask = mask_xyzs_by_vertices(config.config_path,
+                                         mirrored_vertices,
+                                         syns[utils.XYZ].values)
+            syns = syns[mask]
+
+            picked = _pick_syns(syns, count=int(volume * density))
+            all_syns.append(syns.iloc[picked])
+
+        if not len(all_syns):
+            L.debug('No synapses found for: %s %s', projection_name, side)
+            continue
+
+        all_syns = pd.concat(all_syns)
+
+        all_syns['section_id'] = pd.to_numeric(all_syns['section_id'], downcast='unsigned')
+        all_syns['segment_id'] = pd.to_numeric(all_syns['segment_id'], downcast='unsigned')
+
+        utils.write_frame(path, all_syns)
+
+
+def _pick_syns(syns, count):
+    '''pick (with replacement) `count` syns, using syns.segment_length as weighting'''
+    prob_density = syns.segment_length.values.astype(np.float64)
+    try:
+        prob_density = normalize_probability(prob_density)
+    except ErrorCloseToZero:
+        return None
+
+    picked = np.random.choice(len(syns), size=count, replace=True, p=prob_density)
+    return picked
+
+
+def subsample_per_target(output, config, target_population):
+    '''Create feathers files in `output` for projections targeting `target_population`'''
+    region_layer_heights = config.region_layer_heights
+    norm_layer_profiles = utils.normalize_layer_profiles(region_layer_heights,
+                                                         config.recipe.layer_profiles)
+    target_population = target_population  # trick pylint since used in pandas query
+    densities = (config.recipe.
+                 calculate_densities(norm_layer_profiles)
+                 .query('target_population == @target_population')
+                 )
+
+    region_tgt = str(densities.region_tgt.unique()[0])
+    samples = load_all_samples(output, region_tgt, config.flat_map.center_line_3d)
+
+    gb = densities.groupby(['source_population', 'region_tgt', 'projection_name', 'hemisphere', ])
+    for keys, densities in gb:
+        source_population, region_tgt, projection_name, hemisphere = keys
+
+        vertices = config.recipe.projections_mapping[source_population][projection_name]['vertices']
+
+        _subsample_per_source(config, vertices,
+                              projection_name, densities, hemisphere,
+                              samples, output)

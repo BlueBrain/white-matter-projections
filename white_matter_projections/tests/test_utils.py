@@ -8,6 +8,7 @@ from voxcell.nexus import voxelbrain
 
 from nose.tools import eq_, ok_, assert_raises
 import utils as test_utils
+from numpy.testing import assert_allclose, assert_array_equal
 
 
 class TestConfig(object):
@@ -85,3 +86,34 @@ def test_perform_module_grouping():
 def test_get_region_layer_to_id():
     ret = utils.get_region_layer_to_id(test_utils.HIER, 'ECT', [2, 3, 4])
     eq_(ret, {2: 426, 3: 427, 4: 428})
+
+
+def test_mirror_vertices_y():
+    vertices = np.array([(0, 100.), (1, 100.), (0., 101)])
+    center_line = 0.
+    ret = utils.mirror_vertices_y(vertices, center_line)
+    assert_allclose(ret, np.array([(0, -100.), (1, -100.), (0., -101)]))
+
+
+def test_in_2dtriangle():
+    points = np.array([[0.1, 0.1],
+                       [10., 10.],
+                       [0., 0.],
+                       [0., 5.],
+                       [0., -.00001],
+                      ],)
+
+    vertices = np.array([(0., 0), (10., 0), (0., 10.)])
+    ret = utils.in_2dtriangle(vertices, points)
+    assert_array_equal(ret, (True, False, True, True, False))
+
+    #wind the opposite way
+    vertices = np.array([(0., 0), (0., 10.), (10., 0)])
+    ret = utils.in_2dtriangle(vertices, points)
+    assert_array_equal(ret, (True, False, True, True, False))
+
+
+def test_raster_triangle():
+    vertices = np.array([(0., 0), (2., 0), (0., 2.)])
+    ret = utils.raster_triangle(vertices)
+    assert_array_equal(ret, np.array([[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [2, 0]]))

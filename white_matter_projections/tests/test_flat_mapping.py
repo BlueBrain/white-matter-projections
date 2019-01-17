@@ -7,41 +7,12 @@ from voxcell.voxel_data import VoxelData
 from nose.tools import eq_, ok_, assert_raises
 from numpy.testing import assert_allclose
 from mock import Mock, patch
-
-
-def fake_flatmap():
-    raw = np.zeros((5, 5, 5), dtype=np.int)
-    brain_regions = VoxelData(raw, np.ones(3), offset=np.zeros(3))
-    raw[1, :, 0:2] = 2
-    raw[2, :4, 2:3] = 30
-
-    hierarchy = Hierarchy(
-        {'id': 1, 'acronym': 'one',
-         'children': [
-             {'id': 2, 'acronym': 'two', 'children': []},
-             {'id': 20, 'acronym': 'twenty', 'children': [
-                 {'id': 30, 'acronym': 'thirty', 'children': []}
-             ]}
-         ]},
-    )
-
-    view_lookup = -1 * np.ones((5, 5), dtype=int)
-    view_lookup[1, 0] = 0
-    view_lookup[1, 1] = 1
-    view_lookup[2, 2] = 2
-    paths = np.array([[25, 26, 30, 31, 35, ],
-                      [36, 40, 41, 45, 46, ],
-                      [52, 57, 62, 67, 0, ],
-                      ])
-    return flat_mapping.FlatMap(
-        brain_regions, hierarchy, view_lookup, paths,
-        center_line_2d=10., center_line_3d=10.
-        )
+import utils
 
 
 class TestFlatMap(object):
     def __init__(self):
-        self.flat_map = fake_flatmap()
+        self.flat_map = utils.fake_flat_map()
 
     # keep load on external servers low
     #def test_load(self):
@@ -70,11 +41,11 @@ class TestFlatMap(object):
     def test_get_voxel_indices_from_flat(self):
         idx = self.flat_map.get_voxel_indices_from_flat((1, 1))
         assert_allclose(self.flat_map.brain_regions.raw[idx],
-                                   [2] * 5)
+                        [2] * 5)
 
         idx = self.flat_map.get_voxel_indices_from_flat((2, 2))
         assert_allclose(self.flat_map.brain_regions.raw[idx],
-                                   [30] * 4)
+                        [30] * 4)
 
 def test__fit_path():
     path = np.array([[-1, 0.2, 0.9, 2.1],
@@ -85,7 +56,7 @@ def test__fit_path():
 
 
 def test__fit_paths():
-    flat_map = fake_flatmap()
+    flat_map = utils.fake_flat_map()
     fit_paths = flat_mapping._fit_paths(flat_map)
 
     eq_(sorted(fit_paths.columns),
@@ -97,7 +68,7 @@ def test__fit_paths():
 
 
 def test__paths_intersection_distances():
-    flat_map = fake_flatmap()
+    flat_map = utils.fake_flat_map()
     fit_paths = flat_mapping._fit_paths(flat_map)
 
     bounds = [0, 0, 0]
@@ -110,19 +81,29 @@ def test__paths_intersection_distances():
         assert_allclose(distances, [0., 0., 1.])  # directly passes through third path
 
 
-def test__voxel2flat():
-    flat_map = fake_flatmap()
+def test__voxel2flat_helper():
+    flat_map = utils.fake_flat_map()
     path_fits = flat_mapping._fit_paths(flat_map)
     with patch('white_matter_projections.flat_mapping.Config') as Config:
         Config.return_value = config = Mock()
         config.flat_map = flat_map
         config.regions = ['two', 'twenty', 'thirty', ]
         locs = np.array([[2, 1, 2], ])
-        v2f = flat_mapping._voxel2flat('config_path', path_fits, locs)
-        assert_allclose(v2f, [[2, 2,], ])
+        v2f = flat_mapping._voxel2flat_helper('config_path', path_fits, locs)
+        assert_allclose(v2f, [[2, 2, ], ])
+
+def test__voxel2flat():
+    flat_map = utils.fake_flat_map()
+    regions = ['two', 'twenty', 'thirty', ]
+    path_fits = flat_mapping._fit_paths(flat_map)
+    locs = np.array([[2, 1, 2], ])
+    v2f = flat_mapping._voxel2flat(flat_map, regions, path_fits, locs)
+    assert_allclose(v2f, [[2, 2, ], ])
+
 
 def test_get_voxel_to_flat_mapping():
-    flat_map = fake_flatmap()
+    flat_map = utils.fake_flat_map()
+
     with patch('white_matter_projections.flat_mapping.Config') as Config:
         Config.return_value = config = Mock()
         config.flat_map = flat_map

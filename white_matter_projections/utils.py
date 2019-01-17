@@ -23,7 +23,7 @@ except ImportError:
 L = logging.getLogger(__name__)
 
 X, Y, Z = 0, 1, 2
-cX, cY, cZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z]
+cX, cY, cZ, cXYZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z], np.s_[:, :3]
 XYZ = list('xyz')
 
 
@@ -251,3 +251,59 @@ def read_frame(path, columns=None):
         return feather.FeatherReader(source).read_pandas(columns)
     assert False, 'Need to end with .feather: %s' % path
     return None
+
+
+def mirror_vertices_y(vertices, center_line):
+    '''vertices are only defined in recipe for right side of brain, transpose to left'''
+    ret = vertices.copy()
+    ret[cY] = 2 * center_line - ret[cY]
+    return ret
+
+
+def in_2dtriangle(vertices, points):
+    '''check if points are in in triangled `vertices`'''
+    def det(a, b, c):
+        '''det'''
+        return ((b[cX] - a[cX]) * (c[cY] - a[cY]) -
+                (b[cY] - a[cY]) * (c[cX] - a[cX]))
+
+    def _in_triangle(v0, v1, v2, p):
+        '''check if p is in triangle defined by vertices v0, v1, v2'''
+        # XXX: this probably doesn't short circuit, so might be excess computation?
+        return ((det(v1[None, :], v2[None, :], p) >= 0.) &
+                (det(v2[None, :], v0[None, :], p) >= 0.) &
+                (det(v0[None, :], v1[None, :], p) >= 0.))
+
+    v0, v1, v2 = vertices[0, :], vertices[1, :], vertices[2, :]
+
+    # check triangle winding, centroid should be in triangle
+    centroid = np.mean(vertices, axis=0)
+    if _in_triangle(v0, v1, v2, centroid[None, :])[0]:
+        ret = _in_triangle(v0, v1, v2, points)
+    else:
+        ret = _in_triangle(v0, v2, v1, points)  # swap last two vertices
+    return ret
+
+
+def raster_triangle(vertices):
+    '''given verticies, return all indices that would rasterize the triangle'''
+    min_x, min_y = int(np.min(vertices[cX], axis=0)), int(np.min(vertices[cY], axis=0))
+    max_x, max_y = int(np.max(vertices[cX], axis=0)), int(np.max(vertices[cY], axis=0))
+
+    x, y = np.mgrid[min_x:max_x + 1, min_y:max_y + 1]
+    points = np.vstack((x.ravel(), y.ravel())).T
+    return points[in_2dtriangle(vertices, points)]  # swapping the last two vertices
+
+
+def is_mirror(side, hemisphere):
+    '''decide whether vertices needs to be mirrored
+
+    Recipe is organized by the 'source', so when the side (ie: where the
+    synapses are) is 'right', we need to flip for contra such that the source is
+    in the opposite hemisphere, and the synapses are in the right one
+
+    Same logic for 'left'
+    '''
+    # XXX: LEFTRIGHT fix
+    return ((side == 'right' and hemisphere == 'contra') or
+            (side == 'left' and hemisphere == 'ipsi'))

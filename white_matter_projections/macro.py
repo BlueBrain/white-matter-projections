@@ -127,25 +127,28 @@ class MacroConnections(object):
 
         # TODO:  need to check that projections.target_layer_profile is in self.layers
 
-    def _get_projections(self):
+    def _get_projections(self, hemisphere=None):
         '''Get the *used* projections; a projection is used if it is referenced by a ptype'''
-        return (self.projections
-                .query('projection_name in @self.ptypes.projection_name')
-                .merge(self.populations, how='left',
-                       left_on='target_population', right_on='population')
-                .merge(self.populations, how='left',
-                       left_on='source_population', right_on='population',
-                       suffixes=('_tgt', '_src'))
-                .drop(['population_tgt', 'population_src'], axis=1)
-                )
+        ret = (self.projections
+               .query('projection_name in @self.ptypes.projection_name')
+               .merge(self.populations, how='left',
+                      left_on='target_population', right_on='population')
+               .merge(self.populations, how='left',
+                      left_on='source_population', right_on='population',
+                      suffixes=('_tgt', '_src'))
+               .drop(['population_tgt', 'population_src'], axis=1)
+               )
+
+        if hemisphere is not None:
+            assert hemisphere in ('ipsi', 'contra')
+            ret = ret.query('hemisphere == @hemisphere')
+
+        return ret
 
     def _get_connection_map(self, aggregate_function, hemisphere):
         '''get dataframes with the desired synapse density from source -> target region
         '''
-        hemisphere = hemisphere  # pylint workaround: variable used in query()
-        projections = (self._get_projections()
-                       .query('hemisphere == @hemisphere')
-                       )
+        projections = self._get_projections(hemisphere=hemisphere)
 
         group_by_src, group_by_tgt = 'region_src', 'region_tgt'
         sources = sorted(projections[group_by_src].unique())
@@ -174,7 +177,7 @@ class MacroConnections(object):
             return df.target_density.sum()
         return self._get_connection_map(agg_func, hemisphere)
 
-    def _calculate_densities(self, hemisphere, norm_layer_profiles):
+    def calculate_densities(self, norm_layer_profiles, hemisphere=None):
         '''Get overall density in each layer of the target region
 
         Point 2 of: https://bbpteam.epfl.ch/project/issues/browse/NCX-121?focusedCommentId=69966
@@ -188,8 +191,7 @@ class MacroConnections(object):
         '''
         hemisphere = hemisphere  # pylint workaround: variable used in query()
         redundant_columns = ['name', 'index', 'layer', 'region']
-        ret = (self._get_projections()
-               .query('hemisphere == @hemisphere')
+        ret = (self._get_projections(hemisphere=hemisphere)
                .merge(self.layer_profiles, how='left',
                       left_on=['target_layer_profile_name', 'layer_tgt'],
                       right_on=['name', 'layer'])
@@ -199,13 +201,14 @@ class MacroConnections(object):
                .dropna()
                .drop(redundant_columns, axis=1)
                )
+
         ret['density'] = ret.value * ret.target_density * ret.relative_density
 
         return ret
 
     def get_target_region_density(self, norm_layer_profiles, hemisphere):
         '''return dataframe with all the densities for all the target regions'''
-        projections = self._calculate_densities(hemisphere, norm_layer_profiles)
+        projections = self.calculate_densities(norm_layer_profiles, hemisphere)
 
         regions = sorted(projections.region_tgt.unique())
         layers = sorted(projections.layer_tgt.unique())
@@ -223,7 +226,7 @@ class MacroConnections(object):
             self, norm_layer_profiles, target_acronym, modules, hemisphere='ipsi'):
         '''Vertical profile of incoming projections, grouped by module'''
         target_acronym = target_acronym  # pylint workaround: variable used in query()
-        projections = (self._calculate_densities(hemisphere, norm_layer_profiles)
+        projections = (self.calculate_densities(norm_layer_profiles, hemisphere)
                        .query('region_tgt == @target_acronym')
                        )
 
@@ -247,7 +250,7 @@ class MacroConnections(object):
         Point 4 of: https://bbpteam.epfl.ch/project/issues/browse/NCX-121?focusedCommentId=69966
         '''
         target_acronym = target_acronym  # pylint workaround: variable used in query()
-        projections = (self._calculate_densities(hemisphere, norm_layer_profiles)
+        projections = (self.calculate_densities(norm_layer_profiles, hemisphere)
                        .query('region_tgt == @target_acronym')
                        )
 

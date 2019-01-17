@@ -3,9 +3,11 @@ import shutil
 import tempfile
 import yaml
 
+import numpy as np
 from contextlib import contextmanager
 from pandas.api.types import CategoricalDtype
 from voxcell.hierarchy import Hierarchy
+from voxcell.voxel_data import VoxelData
 import yaml
 
 
@@ -91,3 +93,56 @@ def tempdir(prefix):
 
 def gte_(lhs, rhs):
     assert lhs <= rhs, 'lhs: %s not <= rhs: %s' % (lhs, rhs)
+
+
+def fake_brain_regions():
+    raw = np.zeros((5, 5, 5), dtype=np.int)
+    raw[1, :, 0:2] = 2
+    raw[2, :4, 2:3] = 30
+    brain_regions = VoxelData(raw, np.ones(3), offset=np.zeros(3))
+    return brain_regions
+
+
+def fake_flat_map():
+    from white_matter_projections import flat_mapping
+    brain_regions = fake_brain_regions()
+
+    hierarchy = Hierarchy(
+        {'id': 1, 'acronym': 'one',
+         'children': [
+             {'id': 2, 'acronym': 'two', 'children': []},
+             {'id': 20, 'acronym': 'twenty', 'children': [
+                 {'id': 30, 'acronym': 'thirty', 'children': []}
+             ]}
+         ]},
+    )
+
+    view_lookup = -1 * np.ones((5, 5), dtype=int)
+    view_lookup[1, 0] = 0
+    view_lookup[1, 1] = 1
+    view_lookup[2, 2] = 2
+    paths = np.array([[25, 26, 30, 31, 35, ],
+                      [36, 40, 41, 45, 46, ],
+                      [52, 57, 62, 67, 0, ],
+                      ])
+
+    center_line_2d = view_lookup.shape[1] / 2.
+    center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape + brain_regions.offset) / 2.
+    center_line_3d = center_line_3d[2]
+
+    flat_map = flat_mapping.FlatMap(
+        brain_regions, hierarchy, view_lookup, paths,
+        #center_line_2d=10., center_line_3d=10.)
+        center_line_2d, center_line_3d)
+    return flat_map
+
+def fake_voxel_to_flat_mapping():
+    from white_matter_projections import flat_mapping
+    flat_map = fake_flat_map()
+    regions = ['one', 'two', 'twenty', 'thirty', ]
+
+    locations = np.array(np.nonzero(flat_map.brain_regions.raw)).T
+    path_fits = flat_mapping._fit_paths(flat_map)
+    flat_xy = flat_mapping._voxel2flat(flat_map, regions, path_fits, locations)
+    voxel_to_flat_mapping = flat_mapping._create_voxcell_from_xy(locations, flat_map, flat_xy)
+    return flat_map, voxel_to_flat_mapping

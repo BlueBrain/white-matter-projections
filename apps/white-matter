@@ -276,6 +276,16 @@ def sample_all(ctx, target_population):
     sampling.sample_all(output, index_base, population, brain_regions)
 
 
+@micro.command()
+@click.option('-p', '--population', 'target_population', required=True)
+@click.pass_context
+def subsample(ctx, target_population):
+    from white_matter_projections import sampling
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    sampling.subsample_per_target(output, config, target_population)
+
+
 @cli.group()
 @click.option('-c', '--config', type=click.Path(exists=True), required=True)
 @click.option('-o', '--output', required=True)
