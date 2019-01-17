@@ -8,7 +8,6 @@ import os
 
 import click
 import numpy as np
-import pandas as pd
 from white_matter_projections import utils
 
 
@@ -31,8 +30,8 @@ def print_color(s, *args, **kwargs):
 @click.option('-m', '--interactive-matplotlib', is_flag=True)
 @click.pass_context
 def cli(ctx, verbose, interactive_matplotlib):
-    '''cli'''
-    global plt
+    '''White Matter Generation'''
+    global plt  # pylint: disable=global-statement
     if not interactive_matplotlib:
         import matplotlib
         matplotlib.use('Agg')  # noqa
@@ -42,7 +41,7 @@ def cli(ctx, verbose, interactive_matplotlib):
 
     if interactive_matplotlib:
         @contextmanager
-        def figure(name):
+        def figure(name):  # pylint: disable=unused-argument
             '''get a figure'''
             yield plt.figure()
             plt.show()
@@ -75,13 +74,12 @@ def cli(ctx, verbose, interactive_matplotlib):
 @cli.command()
 @click.option('-c', '--config', type=click.Path(exists=True), required=True)
 @click.pass_context
-def repl(ctx, config):
+def repl(ctx, config):  # pylint: disable=unused-argument
+    '''Start ipython REPL'''
     import IPython
-
     config = utils.Config(config)
     norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
                                                          config.recipe.layer_profiles)
-
     IPython.embed(banner1='You have access to: config, norm_layer_profiles')
 
 
@@ -89,6 +87,7 @@ def repl(ctx, config):
 @click.option('-c', '--config', type=click.Path(exists=True), required=True)
 @click.pass_context
 def macro(ctx, config):
+    '''Macro connectivity: based on recipe, but not concretized with circuit details'''
     ctx.obj['config'] = utils.Config(config)
 
 
@@ -96,13 +95,7 @@ def macro(ctx, config):
 @click.option('-t', '--target', default='FRP')
 @click.pass_context
 def stacked_target_density(ctx, target):
-    '''stacked target density
-
-    Colored by source:
-        1. MODULE
-        2. LAYER (or subregion, i.e. 5it and 5pt are separate)
-        3. REGION
-    '''
+    '''Stacked barchart of incoming regions synapse density for the selected target '''
     config, recipe = ctx.obj['config'], ctx.obj['config'].recipe
 
     norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
@@ -135,25 +128,25 @@ def stacked_target_density_module(ctx, target):
                        .melt('Source')
                        )
     order = alt.Order('Source', sort='ascending')
-    chart = (alt.Chart(stacked_density)
-             .properties(height=1000, width=400,
-                         title='%s Layer by Source Population' % target)
-             .mark_bar()
-             .encode(
-                 x=alt.X('Target:N', axis=alt.Axis(title='Layer')),
+    _ = (alt.Chart(stacked_density)
+         .properties(height=1000, width=400,
+                     title='%s Layer by Source Population' % target)
+         .mark_bar()
+         .encode(x=alt.X('Target:N', axis=alt.Axis(title='Layer')),
                  y=alt.Y('sum(value):Q', axis=alt.Axis(title='Density')),
                  color=alt.Color('Source'),
                  order=order,
                  tooltip=['Source', 'Target', 'value']
-             )
-             .save('stacked_density_%s.html' % target)
-             )
+                 )
+         .save('stacked_density_%s.html' % target)
+         )
 
 
 @macro.command()
 @click.pass_context
 @click.option('--contra', is_flag=True)
 def connectivity(ctx, contra):
+    '''Plot connectivity matrix of of synapse densities per region'''
     from white_matter_projections import display
     config = ctx.obj['config']
 
@@ -171,6 +164,7 @@ def connectivity(ctx, contra):
 @click.pass_context
 @click.option('--contra', is_flag=True)
 def target_density(ctx, contra):
+    '''Plot synapse density in target regions, by layer'''
     import seaborn as sns
     config = ctx.obj['config']
 
@@ -193,6 +187,7 @@ def target_density(ctx, contra):
 @macro.command()
 @click.pass_context
 def source_mapping_triangles(ctx):
+    '''Plot all triangles of the source regions on the flat-map'''
     from white_matter_projections import display
 
     name = 'src_mapping_triangles'
@@ -204,10 +199,11 @@ def source_mapping_triangles(ctx):
 @click.option('-p', '--population', required=True)
 @click.pass_context
 def stats(ctx, population):
+    '''Calculate stats per population'''
     config = ctx.obj['config']
 
     region_names = set(config.recipe.populations.query('population == @population').subregion)
-    region_names = region_names  # trick pylint
+    population, region_names = population, region_names  # trick pylint
 
     sources = config.recipe.projections.query('source_population == @population')
     if len(sources):
@@ -239,6 +235,7 @@ def stats(ctx, population):
 @click.option('-o', '--output', required=True)
 @click.pass_context
 def micro(ctx, config, output):
+    '''Micro connectivity: based on recipe, including circuit details'''
     ctx.obj['config'] = utils.Config(config)
     ctx.obj['output'] = output
     utils.ensure_path(output)
@@ -247,6 +244,7 @@ def micro(ctx, config, output):
 @micro.command()
 @click.pass_context
 def allocate(ctx):
+    '''Allocate source cell GIDS by region, and store them for use when assigning target GIDS'''
     from white_matter_projections import micro
     config, output = ctx.obj['config'], ctx.obj['output']
 
@@ -261,12 +259,29 @@ def allocate(ctx):
     micro.save_allocations(allocations_path, allocations)
 
 
+@micro.command()
+@click.option('-p', '--population', 'target_population', required=True)
+@click.pass_context
+def sample_all(ctx, target_population):
+    '''create and save segment sample regions for target_population'''
+    from white_matter_projections import sampling
+
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    target_population = target_population
+    index_base = config.config['indices']
+    population = config.recipe.populations.query('population == @target_population')
+    brain_regions = config.atlas.load_data('brain_regions')
+
+    sampling.sample_all(output, index_base, population, brain_regions)
+
+
 @cli.group()
 @click.option('-c', '--config', type=click.Path(exists=True), required=True)
 @click.option('-o', '--output', required=True)
 @click.pass_context
 def analysis(ctx, config, output):
-    '''analysis'''
+    '''general analysis'''
     ctx.obj['config'] = utils.Config(config)
     assert os.path.exists(output)
     ctx.obj['output'] = output
@@ -276,6 +291,7 @@ def analysis(ctx, config, output):
 @click.option('-p', '--population', required=True, default='ACAd_6')
 @click.pass_context
 def allocation_stats(ctx, population):
+    '''Based on the allocations created by 'micro allocate', display stats'''
     from white_matter_projections import micro
     config, recipe, output = ctx.obj['config'], ctx.obj['config'].recipe, ctx.obj['output']
 
@@ -302,4 +318,4 @@ def allocation_stats(ctx, population):
 
 
 if __name__ == '__main__':
-    cli(obj={})
+    cli(obj={})  # pylint: disable=no-value-for-parameter,unexpected-keyword-arg
