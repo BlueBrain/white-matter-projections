@@ -1,6 +1,9 @@
 '''utilities for displaying pertinent information'''
 import logging
 import numpy as np
+import pandas as pd
+
+from white_matter_projections import utils, mapping, micro
 
 
 L = logging.getLogger(__name__)
@@ -73,6 +76,56 @@ def create_module_color_mapping(module_grouping, module_grouping_color, colors, 
     return id2color
 
 
+def plot_allen_coloured_flat_map(ax, config, regions='all', only_right=False):
+    '''Plot flatmap using colors from AIBS'''
+    id2color = create_module_color_mapping(config.config['module_grouping'],
+                                           config.config['module_grouping_color'],
+                                           config.config['colors'],
+                                           config.flat_map.hierarchy)
+    if regions == 'all':
+        regions = config.regions
+
+    return draw_module_flat_map(
+        ax, id2color, config.flat_map, regions=regions, only_right=only_right)
+
+
+def plot_flat_cells(ax, cells, gids, mapper, color='black', alpha=0.025):
+    '''plot the source cell locations in the flat space
+
+    Args:
+        ax: axis to plot to
+        cells(DataFrame): cell dataframe, must have x/y/z columns
+        gids(array of ints): gids to be plotted
+        mapper: map from voxels to flata
+        color: matplotlib color
+        alpha: matplotlib alpha
+    '''
+
+    gids = np.unique(gids)
+    gids = pd.DataFrame(index=gids).sort_index()
+    cells = cells[utils.XYZ]
+    xyz = cells.join(gids, how='right').values
+    plot_xyz_to_flat(ax, mapper, xyz, color=color, alpha=alpha)
+
+
+def plot_xyz_to_flat(ax, mapper, xyz, color='black', alpha=0.05):
+    '''Map `xyz` positions to flat space, using `mapper`
+
+    Args:
+        ax: axis to plot to
+        mapper: map from voxels to flata
+        xyz(array Nx3): positions
+        color: matplotlib color
+        alpha: matplotlib alpha
+    '''
+    uvs = mapper.map_points_to_flat(xyz)
+    uvs = uvs[uvs[:, utils.Y] > 0.]
+
+    # Note: Y/X are reversed to keep the same perspective as plt.imshow
+    ax.scatter(uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=1, alpha=alpha, color=color)
+    return uvs
+
+
 def draw_region_outlines(ax, hier, flat_id, regions, labels='all', only_right=False):
     '''draws the outlines of the specified regions
 
@@ -114,7 +167,7 @@ def draw_region_outlines(ax, hier, flat_id, regions, labels='all', only_right=Fa
                     color='white')
 
 
-def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=True):
+def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=False):
     '''draw flat map to `ax` colored by module, with outlines
 
     Args:
@@ -134,7 +187,7 @@ def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=True):
 
     midline = 0
     if only_right:
-        midline = flat_id.shape[1] // 2
+        midline = flat_map.center_line_2d
 
     ax.imshow(flat_id[:, midline:])
 
@@ -144,26 +197,80 @@ def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=True):
     return midline
 
 
-def plot_source_region_triangles(ax, config):
-    '''draw all source barycentric triangles on colored flat map
+def draw_triangle(ax, vertices, color='white'):
+    '''draw `vertices` to `ax`'''
+    v = (0, 1, 2, 0)
+    ax.plot(vertices[v, 1], vertices[v, 0], c=color)
+
+
+def plot_source_region_triangles(ax, config, regions='all', only_right=False):
+    '''draw all source barycentric triangles
 
     Args:
         ax: matplotlib axis to which the outlines will be drawn
         config: utils.Config object
+        regions: iterable of regions to be drawn, 'all' if all in config
+        only_right(bool): if true, only the right side of the flatmap is drawn
     '''
-    flat_map = config.flat_map
-    c = config.config
-    id2color = create_module_color_mapping(c['module_grouping'],
-                                           c['module_grouping_color'],
-                                           c['colors'],
-                                           flat_map.hierarchy)
-    midline = draw_module_flat_map(ax, id2color, flat_map, config.regions)
-    v = (0, 1, 2, 0)
-    seen = set()
+    midline = 0
+    if only_right:
+        midline = config.flat_map.center_line_2d
+
+    if regions == 'all':
+        wanted_regions = set(config.regions)
+    else:
+        wanted_regions = set(regions)
+
     for region_name, values in config.recipe.projections_mapping.items():
         region_name = region_name.split('_')[0]
-        if region_name in seen:
+        if region_name not in wanted_regions:
             continue
-        seen.add(region_name)
-        verts = values['vertices']
-        ax.plot(verts[v, 1] - midline, verts[v, 0], c='white')
+        vertices = values['vertices'] - (0, midline)
+        draw_triangle(ax, vertices, color='white')
+
+
+def draw_projection(ax, config, allocations, syns, projection_name, side):
+    '''for `projection_name`, plot the target synapse locations'''
+    # pylint: disable=too-many-locals
+
+    flat_map, recipe = config.flat_map, config.recipe
+
+    mapper = mapping.CommonMapper.load_default(config)
+    hemisphere = recipe.projections.set_index('projection_name').loc[projection_name].hemisphere
+
+    left_cells, right_cells = micro.partition_cells_left_right(config.cells(),
+                                                               flat_map.center_line_3d)
+
+    source_population, all_sgids = allocations.loc[projection_name][['source_population', 'sgids']]
+    all_sgids = np.unique(all_sgids)
+    used_sgids = syns.sgid.unique()
+    mirror = utils.is_mirror(side, hemisphere)
+
+    for sgids, color, alpha in ((all_sgids, 'white', 1.),
+                                (used_sgids, 'green', 1.),
+                                ):
+        src_cell_positions = micro.separate_source_and_targets(
+            left_cells, right_cells, sgids, hemisphere, side)
+
+        xyz = src_cell_positions[utils.XYZ].values
+        uvs = plot_xyz_to_flat(ax, mapper, xyz, color=color, alpha=alpha)
+
+        uvs = mapper.map_flat_to_flat(source_population, projection_name, uvs, mirror)
+        uvs = uvs[uvs[:, utils.Y] > 0.]
+        # Note: Y/X are reversed to keep the same perspective as plt.imshow
+        ax.scatter(uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=alpha, color=color)
+
+    # draw source vertices
+    projections_mapping = recipe.projections_mapping[source_population]
+    src_verts = projections_mapping['vertices']
+    tgt_verts = projections_mapping[projection_name]['vertices']
+    if mirror:
+        src_verts = utils.mirror_vertices_y(src_verts, flat_map.center_line_2d)
+        tgt_verts = utils.mirror_vertices_y(tgt_verts, flat_map.center_line_2d)
+    draw_triangle(ax, src_verts, color='green')
+    draw_triangle(ax, tgt_verts, color='yellow')
+
+    # clip to regions
+    # src_id = hier.find('acronym', src_region)[0].data['id']
+    # tgt_id = hier.find('acronym', tgt_region)[0].data['id']
+    # flat_region_id = flat_map.make_flat_id_region_map(config.regions)

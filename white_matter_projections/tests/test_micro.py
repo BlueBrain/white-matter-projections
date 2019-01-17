@@ -190,3 +190,79 @@ def test__allocate_groups():
 
 #def test_allocation_stats():
 #    ret = micro.allocation_stats(ptype, interactions, cell_count, allocations)
+
+
+def test_partition_cells_left_right():
+    cells = pd.DataFrame(np.arange(10) + .1, columns=['z', ])
+    left, right = micro.partition_cells_left_right(cells, center_line_3d=5.1)
+    eq_(len(left), 6)
+    eq_(len(right), 4)
+
+
+def test_partition_syns():
+    syns = pd.DataFrame(np.arange(10) + .1, columns=['z', ])
+    left = micro.partition_syns(syns, side='left', center_line_3d=5.1)
+    eq_(len(left), 6)
+
+    right = micro.partition_syns(syns, side='right', center_line_3d=5.1)
+    eq_(len(right), 4)
+
+
+def test_separate_source_and_targets():
+    cells = pd.DataFrame(np.arange(10) + .1, columns=['z', ])
+    cells['x'] = 1
+    cells['y'] = 2
+    sgids = cells.index.values
+    left_cells, right_cells = micro.partition_cells_left_right(cells, center_line_3d=5.1)
+
+    ret = micro.separate_source_and_targets(left_cells, right_cells, sgids,
+                                            hemisphere='ipsi', side='left')
+    eq_(len(ret), 6)
+
+    ret = micro.separate_source_and_targets(left_cells, right_cells, sgids,
+                                            hemisphere='contra', side='left')
+    eq_(len(ret), 4)
+
+    ret = micro.separate_source_and_targets(left_cells, right_cells, sgids,
+                                            hemisphere='ipsi', side='right')
+    eq_(len(ret), 4)
+
+    ret = micro.separate_source_and_targets(left_cells, right_cells, sgids,
+                                            hemisphere='contra', side='right')
+    eq_(len(ret), 6)
+
+
+
+def test__assign_groups():
+    tgt_flat = np.array([[-10., -10.],
+                         [10., 10.],
+                         ])
+
+    src_flat = np.array([[0., 0.], ])
+    res = micro._assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10)
+    eq_(list(res), [0, 0])
+
+    src_flat = np.array([[-10., -10.],
+                         [10., 10.],
+                         ])
+    res = micro._assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10)
+    eq_(list(res), [0, 1])
+
+
+def test_assign_groups():
+    tgt_flat = np.array([[-10., -10.],
+                         [10., 10.],
+                         ])
+    src_flat = pd.DataFrame([[-10., -10.],
+                             [10., 10.],
+                             ], index=(10, 20))
+    res = micro.assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10, n_jobs=1)
+    eq_(list(res), [10, 20])
+
+
+#def test_assignment():
+#    config
+#    allocations
+#    side
+#    with tempdir('test_assignment') as output:
+#        micro.assignment(output, config, allocations, side)

@@ -17,12 +17,18 @@ This includes
 from functools import partial
 import itertools as it
 import logging
+import math
+import os
 
 import h5py
 import numpy as np
 import pandas as pd
 
+from joblib import Parallel, delayed
+from white_matter_projections import sampling, utils
 
+
+ASSIGNMENT_PATH = 'ASSIGNED'
 L = logging.getLogger(__name__)
 
 
@@ -215,10 +221,9 @@ def _ptype_to_counts(cell_count, ptype, interactions):
         else:
             fraction0 = ptype.loc[g0].fraction
             fraction1 = ptype.loc[g1].fraction
-            assert len(fraction0.unique()) == 1, \
-                'Should only have one fraction0 %s' % ptype.loc[g0].fraction.unique()
-            assert len(fraction1.unique()) == 1, \
-                'Should only have one fraction1 %s' % ptype.loc[g1].fraction.unique()
+            msg = 'Should only have one fraction%d %s'
+            assert len(fraction0.unique()) == 1, msg % (0, ptype.loc[g0].fraction.unique())
+            assert len(fraction1.unique()) == 1, msg % (1, ptype.loc[g1].fraction.unique())
             base_fraction = fraction0[0] * fraction1[0]
 
         overlap_counts[key] = int(cell_count * weight * base_fraction)
@@ -274,19 +279,16 @@ def allocate_projections(recipe, cells):
     return ret
 
 
-def allocation_stats(ptypes, populations, ptypes_interaction_matrix, cells,
-                     allocations, population):
+def allocation_stats(recipe, cells, allocations, source_population):
     '''calculate the expected and allocated gids
 
     useful to verify how well `allocate_projections` works
 
     Args:
-        ptypes
-        populations
-        ptypes_interaction_matrix
-        cells
-        allocations
-        population
+        recipe(MacroConnections): the recipe
+        cells(DataFrame): potential source cells, from circuit
+        allocations(DataFrame): allocated cells
+        source_population(str): name of source population
 
     Returns:
         tuple of dfs:
@@ -294,17 +296,17 @@ def allocation_stats(ptypes, populations, ptypes_interaction_matrix, cells,
             interactions: first order interactions w/ 'expected' and 'allocated'
     '''
     # pylint: disable=too-many-locals
-    ptypes = (ptypes
-              .merge(populations, left_on='source_population', right_on='population')
-              .query('source_population == @population')
+    ptypes = (recipe.ptypes
+              .merge(recipe.populations, left_on='source_population', right_on='population')
+              .query('source_population == @source_population')
               )
-    interactions = ptypes_interaction_matrix.get(population, None)
-    gids = get_gids_py_population(populations, cells, population)
+    interactions = recipe.ptypes_interaction_matrix.get(source_population, None)
+    gids = get_gids_py_population(recipe.populations, cells, source_population)
 
     total_counts, overlap_counts = _ptype_to_counts(len(gids), ptypes, interactions)
 
     allocations = (allocations
-                   .query('source_population == @population')
+                   .query('source_population == @source_population')
                    .set_index('projection_name')
                    )
 
@@ -320,3 +322,159 @@ def allocation_stats(ptypes, populations, ptypes_interaction_matrix, cells,
     df['absolute_difference'] = np.abs((df.actual - df.expected) / df.expected)
 
     return counts, df
+
+
+def partition_cells_left_right(cells, center_line_3d):
+    '''return left and right cells'''
+    left_cells = cells[cells.z <= center_line_3d]
+    right_cells = cells[cells.z > center_line_3d]
+    return left_cells, right_cells
+
+
+def partition_syns(syns, side, center_line_3d):
+    '''return synapses from `side` based on `center_line_3d`'''
+    assert side in ('left', 'right', )
+    if side == 'right':
+        syns_mask = center_line_3d < syns.z
+    else:
+        syns_mask = syns.z <= center_line_3d
+    return syns[syns_mask]
+
+
+def separate_source_and_targets(left_cells, right_cells, sgids, hemisphere, side):
+    '''based on the hemisphere and side, return the source cell positions, and synapses
+
+    Args:
+        left_cells(df): cells in the left hemisphere
+        right_cells(df): cells in the right hemisphere
+        sgids(np.array of int): potential source GIDs
+        hemisphere(str): 'ipsi' or 'contra'; which type of projection
+        side(str): 'left' or 'right', which hemisphere we're working in
+
+    Returns:
+       src cell xyz positions
+       synapses dataframe
+    '''
+    assert hemisphere in ('ipsi', 'contra', )
+    assert side in ('left', 'right', )
+
+    if side == 'right':
+        if hemisphere == 'ipsi':
+            cells = right_cells
+        else:
+            cells = left_cells
+    else:
+        if hemisphere == 'ipsi':
+            cells = left_cells
+        else:
+            cells = right_cells
+
+    sgids = sgids[np.isin(sgids, cells.index)]
+    src_cell_positions = cells.loc[sgids][utils.XYZ]
+
+    return src_cell_positions
+
+
+def _assign_groups(src_flat, tgt_flat, sigma, closest_count):
+    '''helper for multiprocessing
+
+    Args:
+        src_flat(array(Nx2)): source 'fiber' locations in flat coordinates
+        tgt_flat(array(Nx2)) target synapses locations in flat coordinates
+        sigma(float): sigma for normal distribution for weights
+        closest_count(int): number of fibers in the kd-tree
+
+    Returns:
+        index into src_flat for each of the tgt_flat
+
+    '''
+    from scipy.spatial import KDTree
+    from scipy.stats import norm
+    from projectionizer.utils import choice
+
+    kd_fibers = KDTree(src_flat)
+    distances, sgids = kd_fibers.query(tgt_flat, closest_count)
+
+    # From: 'White matter workflow and recipe creation':
+    #  calculate the probabilities that each neuron is mapped to innervates
+    #  each connection as a gaussian of the pairwise distances with a
+    #  specified variance $\sigma_M$.
+
+    prob = norm.pdf(distances, 0, sigma)
+    prob = np.nan_to_num(prob)
+    idx = choice(prob)
+
+    return sgids[np.arange(len(sgids)), idx]
+
+
+def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=None):
+    '''
+
+    Args:
+        src_flat(DataFrame with sgid as index): index is used to return sgids
+        tgt_flat(array(Nx2)) target synapses locations in flat coordinates
+        sigma(float): sigma for normal distribution for weights
+        closest_count(int): number of fibers in the kd-tree
+        n_jobs(int): number of jobs
+
+    Returns:
+        index into src_xy for each of the tgt_xy
+    '''
+
+    if chunks is None:
+        chunks = len(tgt_flat) // 10000 + 1
+
+    p = Parallel(n_jobs=n_jobs,
+                 # the multiprocessing backend is 50x faster than 'loky';
+                 # I *think* it has to do w/ loky startup being slow GPFS
+                 # coupled w/ its use of semaphores, but I haven't been able
+                 # to prove that.  For debugging, 'loky' is *much* nicer, use
+                 # that when you can
+                 backend='multiprocessing',
+                 # verbose=51
+                 )
+    worker = delayed(_assign_groups)
+    ids = p(worker(src_flat.values, uv, sigma, closest_count)
+            for uv in np.array_split(tgt_flat, chunks))
+    ids = np.concatenate(ids)
+
+    return src_flat.index[ids]
+
+
+def assignment(output, config, allocations, projections_mapping, mapper, side, closest_count):
+    '''perform assignment'''
+    # pylint: disable=too-many-locals
+    samples_path = os.path.join(output, sampling.SAMPLE_PATH)
+
+    left_cells, right_cells = partition_cells_left_right(config.cells(only_projecting=True),
+                                                         config.flat_map.center_line_3d)
+
+    columns = ['projection_name', 'source_population', 'sgids', 'hemisphere', ]
+    for projection_name, source_population, sgids, hemisphere in allocations[columns].values:
+        output_path = os.path.join(output, ASSIGNMENT_PATH, side)
+        utils.ensure_path(output_path)
+        output_path = os.path.join(output_path, projection_name + '.feather')
+        if os.path.exists(output_path):
+            L.debug('Skipping %s, already have %s', projection_name, output_path)
+            continue
+
+        L.debug('Doing %s -> %s', projection_name, output_path)
+
+        # src coordinates in flat space
+        src_cell_positions = separate_source_and_targets(
+            left_cells, right_cells, sgids, hemisphere, side)
+
+        flat_src_uvs = mapper.map_points_to_flat(src_cell_positions.values)
+        src_coordinates = mapper.map_flat_to_flat(
+            source_population, projection_name, flat_src_uvs, utils.is_mirror(side, hemisphere))
+        src_coordinates = pd.DataFrame(
+            src_coordinates, index=src_cell_positions.index)
+
+        # tgt synapses in flat space
+        syns = utils.read_frame(os.path.join(samples_path, side, projection_name + '.feather'))
+        syns = partition_syns(syns, side, config.flat_map.center_line_3d)
+        flat_tgt_uvs = mapper.map_points_to_flat(syns[utils.XYZ].values)
+
+        sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
+        syns['sgid'] = assign_groups(src_coordinates, flat_tgt_uvs, sigma, closest_count)
+        utils.write_frame(output_path, syns)

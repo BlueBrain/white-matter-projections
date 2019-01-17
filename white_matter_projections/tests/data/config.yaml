@@ -18,6 +18,13 @@ flat_mapping: # these all come from Allen, and aren't in Neuroinformatics yet
     cortical_map: https://github.com/AllenInstitute/mouse_connectivity_models/raw/master/mcmodels/core/cortical_coordinates/dorsal_flatmap_paths_100.h5
     brain_regions: http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/annotation_100.nrrd
     hierarchy: http://api.brain-map.org/api/v2/structure_graph_download/1.json
+    # The center_line_2d and center_line_3d have to be computed by inspecting
+    # the relevent flat_map and brain_regions datasets, respectively.
+    # Unfortunately the, the hierarchy doesn't allow us to know about
+    # hemispheres
+    # https://bbpteam.epfl.ch/project/issues/browse/NCX-102?focusedCommentId=71052&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-71052
+    center_line_2d: 136
+    center_line_3d: 5700
 
 
 module_grouping_color:

@@ -42,15 +42,15 @@ def test_FlatToFlat():
                            }
     f2f = mapping.FlatToFlat(projections_mapping, center_line_2d=0.)
 
-    src_flat_uvs, offsets = np.array([np.mean(verts, axis=0), ]), np.array([[0., 0.], ])
+    src_flat_uvs = np.array([np.mean(verts, axis=0), ])
     tgt_flat_uvs = f2f(src_region='Region1', projection_name='Projection1',
-                       src_flat_uvs=src_flat_uvs, offsets=offsets, mirror=False)
+                       flat_uvs=src_flat_uvs, mirror=False)
     assert_allclose(10 * src_flat_uvs, tgt_flat_uvs)
 
 
     # when mirroring, since all the vertices are on the same side, will get the same result
     tgt_flat_uvs = f2f(src_region='Region1', projection_name='Projection1',
-                       src_flat_uvs=src_flat_uvs, offsets=offsets, mirror=True)
+                       flat_uvs=src_flat_uvs, mirror=True)
     assert_allclose(10 * src_flat_uvs, tgt_flat_uvs)
 
 

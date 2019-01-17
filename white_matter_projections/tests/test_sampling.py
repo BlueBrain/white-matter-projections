@@ -247,7 +247,7 @@ def test__subsample_per_source():
                       },
                }
     projection_name = 'projection_name'
-    with tempdir('test_sample_all') as output:
+    with tempdir('test__subsample_per_source') as output:
         with patch('white_matter_projections.sampling.mask_xyzs_by_vertices') as mask_xyzs:
             mask_xyzs.return_value = np.array([True], dtype=bool)
             np.random.seed(37)

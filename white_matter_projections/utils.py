@@ -114,11 +114,11 @@ class Config(object):
         return flat_map
 
     @lru_cache()
-    def cells(self, include_all=False):
+    def cells(self, only_projecting=False):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
         cells = self.circuit.cells.get()
 
-        if not include_all:
+        if only_projecting:
             projecting_mtypes = self.config['projecting_mtypes']
             projecting_mtypes = projecting_mtypes  # trick pylint due to df.query
             cells = cells.query('mtype in @projecting_mtypes')
@@ -304,6 +304,5 @@ def is_mirror(side, hemisphere):
 
     Same logic for 'left'
     '''
-    # XXX: LEFTRIGHT fix
     return ((side == 'right' and hemisphere == 'contra') or
             (side == 'left' and hemisphere == 'ipsi'))

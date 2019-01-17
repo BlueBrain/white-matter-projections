@@ -1,6 +1,6 @@
 import os
 from bluepy.v2.circuit import Circuit
-from white_matter_projections import utils, macro
+from white_matter_projections import utils, macro, flat_mapping
 import numpy as np
 import pandas as pd
 import voxcell
@@ -23,11 +23,15 @@ class TestConfig(object):
                  ('regions', list),
                  #('circuit', Circuit),  # need a valid circuit
                  ('config', dict),
-                 ('config_path', str)
+                 ('config_path', str),
+                 #('flat_map', flat_mapping.FlatMap),  # hits AIBS API, reduce load
                  )
 
         for attr_, type_ in types:
             ok_(isinstance(getattr(self.config, attr_), type_))
+
+        #ok_(isinstance(self.config.voxel_to_flat(), voxcell.VoxelData))  # too slow
+        #ok_(isinstance(self.config.cells()), pd.DataFrame)  # need a valid circuit
 
     def test_region_layer_heights(self):
         ret = self.config.region_layer_heights
@@ -117,3 +121,11 @@ def test_raster_triangle():
     vertices = np.array([(0., 0), (2., 0), (0., 2.)])
     ret = utils.raster_triangle(vertices)
     assert_array_equal(ret, np.array([[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [2, 0]]))
+
+
+#def test_is_mirror():
+#    ok_(False)
+#
+#
+#def test_population2region():
+#    ok_(False)

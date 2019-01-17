@@ -69,7 +69,7 @@ class FlatToFlat(object):
         self.projections_mapping = projections_mapping
         self.center_line_2d = center_line_2d
 
-    def __call__(self, src_region, projection_name, src_flat_uvs, offsets, mirror):
+    def __call__(self, src_region, projection_name, flat_uvs, mirror):
         '''if mirror: the src/tgt vertices are mirrored'''
         src_verts = self.projections_mapping[src_region]['vertices']
         tgt_verts = self.projections_mapping[src_region][projection_name]['vertices']
@@ -81,19 +81,53 @@ class FlatToFlat(object):
         bc_src = BarycentricCoordinates(src_verts)
         bc_tgt = BarycentricCoordinates(tgt_verts)
 
-        pos = src_flat_uvs.astype(float) + offsets
-        tgt_flat_uvs = bc_tgt.bary2cart(bc_src.cart2bary(pos))
+        tgt_flat_uvs = bc_tgt.bary2cart(bc_src.cart2bary(flat_uvs))
         return tgt_flat_uvs
 
 
+class CommonMapper(object):
+    '''Aggregate individual mapping operations common mappings
+
+        Args:
+            position_to_voxel(PositionToVoxel): instance of class
+            voxel_to_flat(VoxelToFlat): instance of class
+            flat_to_flat(FlatToFlat): instance of class
+    '''
+    def __init__(self, position_to_voxel, voxel_to_flat, flat_to_flat):
+        self.position_to_voxel = position_to_voxel
+        self.voxel_to_flat = voxel_to_flat
+        self.flat_to_flat = flat_to_flat
+
+    def map_points_to_flat(self, positions):
+        '''returns 2D coordinates in flat space for all positions'''
+        voxel_ijks, offsets = self.position_to_voxel(positions)
+        assert len(voxel_ijks) == len(offsets)
+        flat_uvs, offsets = self.voxel_to_flat(voxel_ijks, offsets)
+        assert len(flat_uvs) == len(offsets)
+        return flat_uvs.astype(float) + offsets
+
+    def map_flat_to_flat(self, src_region, projection_name, src_flat_uvs, mirror):
+        '''maps from flat to flat coordinates'''
+        tgt_flat_uvs = self.flat_to_flat(src_region, projection_name, src_flat_uvs, mirror)
+        return tgt_flat_uvs
+
+    @classmethod
+    def load_default(cls, config):
+        '''load default mapping'''
+        flat_map = config.flat_map
+        position_to_voxel = PositionToVoxel(flat_map.brain_regions)
+        voxel_to_flat = VoxelToFlat(config.voxel_to_flat(), flat_map.view_lookup.shape)
+        flat_to_flat = FlatToFlat(config.recipe.projections_mapping, flat_map.center_line_2d)
+        return cls(position_to_voxel, voxel_to_flat, flat_to_flat)
+
+
 class BarycentricCoordinates(object):
-    '''Handle conversion of barycentric coordinates for interpolation'''
-    def __init__(self, vertices):
-        '''init
+    '''Handle conversion of barycentric coordinates for interpolation
 
         Args:
             vertices(np.array): 3x2 where x coordinates of the triangle are column 0, and y col 1
-        '''
+    '''
+    def __init__(self, vertices):
         self.vertices = vertices
         self.inv = np.linalg.inv(np.vstack((vertices[0:2, X] - vertices[2, X],
                                             vertices[0:2, Y] - vertices[2, Y],)))

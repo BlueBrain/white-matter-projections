@@ -268,8 +268,6 @@ def _voxel2flat_helper(config_path, path_fits, locs):
 
 def _voxel2flat(flat_map, regions, path_fits, locs):
     '''for each voxel, find the corresponding flat 2d position'''
-    # avoid excessive serialization
-
     center_line_3d = flat_map.center_line_3d / flat_map.brain_regions.voxel_dimensions[Z]
 
     id_to_top_region = {id_: region

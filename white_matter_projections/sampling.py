@@ -280,7 +280,7 @@ def calculate_constrained_volume(config, brain_regions, region_id, vertices):
     return count * brain_regions.voxel_volume
 
 
-def _subsample_per_source(config, vertices,
+def _subsample_per_source(config, target_vertices,
                           projection_name, densities, hemisphere,
                           segment_samples, output):
     '''Given all region's `segment_samples`, pick segments that satisfy the
@@ -288,7 +288,8 @@ def _subsample_per_source(config, vertices,
 
     Args:
         config(utils.Config): configuration
-        vertices(array): vertices in flat_space to constrain the samples
+        target_vertices(array): vertices in flat_space to constrain the samples in the target
+        flat_space
         projection_name(str): name of projection
         densities(DataFrame): with columns 'layer_tgt', 'id_tgt', 'density'
         hemisphere(str): either 'ipsi' or 'contra'
@@ -309,10 +310,9 @@ def _subsample_per_source(config, vertices,
             continue
 
         L.debug('Doing %s[%s]', projection_name, side)
+        mirrored_vertices = target_vertices.copy()
         if utils.is_mirror(side, hemisphere):
-            mirrored_vertices = utils.mirror_vertices_y(vertices, center_line)
-        else:
-            mirrored_vertices = vertices.copy()
+            mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
 
         groupby = densities.groupby(['layer_tgt', 'id_tgt']).density.sum().iteritems()
         all_syns = []
@@ -330,6 +330,8 @@ def _subsample_per_source(config, vertices,
 
             picked = _pick_syns(syns, count=int(volume * density))
             all_syns.append(syns.iloc[picked])
+
+            del syns, picked  # drop memory usage as quickly as possible
 
         if not len(all_syns):
             L.debug('No synapses found for: %s %s', projection_name, side)
@@ -357,8 +359,7 @@ def _pick_syns(syns, count):
 
 def subsample_per_target(output, config, target_population):
     '''Create feathers files in `output` for projections targeting `target_population`'''
-    region_layer_heights = config.region_layer_heights
-    norm_layer_profiles = utils.normalize_layer_profiles(region_layer_heights,
+    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
                                                          config.recipe.layer_profiles)
     target_population = target_population  # trick pylint since used in pandas query
     densities = (config.recipe.
@@ -366,15 +367,15 @@ def subsample_per_target(output, config, target_population):
                  .query('target_population == @target_population')
                  )
 
+    projections_mapping = config.recipe.projections_mapping
     region_tgt = str(densities.region_tgt.unique()[0])
     samples = load_all_samples(output, region_tgt, config.flat_map.center_line_3d)
-
     gb = densities.groupby(['source_population', 'region_tgt', 'projection_name', 'hemisphere', ])
     for keys, densities in gb:
         source_population, region_tgt, projection_name, hemisphere = keys
 
-        vertices = config.recipe.projections_mapping[source_population][projection_name]['vertices']
+        tgt_vertices = projections_mapping[source_population][projection_name]['vertices']
 
-        _subsample_per_source(config, vertices,
+        _subsample_per_source(config, tgt_vertices,
                               projection_name, densities, hemisphere,
                               samples, output)
