@@ -248,6 +248,28 @@ def micro(ctx, config, output):
 
 @micro.command()
 @click.pass_context
+def download_streamlines(ctx):
+    '''Download as many streamlines as possible used in recipe from AIBS'''
+    from white_matter_projections import streamlines
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    streamline_csvs = os.path.join(output, 'streamlines')
+    if not os.path.exists(streamline_csvs):
+        L.info('Downlading streamlines to %s', streamline_csvs)
+        utils.ensure_path(streamline_csvs)
+        centroids = streamlines.get_connected_centroids(config.flat_map, config.recipe)
+        missing = streamlines.download_streamlines(centroids, config.hierarchy, streamline_csvs)
+        if missing:
+            L.info('Missing streamlines: %s', missing)
+
+    csv_paths = glob(os.path.join(streamline_csvs, '*.csv'))
+    metadata, paths = streamlines.convert_csvs(
+        csv_paths, center_line_3d=config.flat_map.center_line_3d)
+    streamlines.save_streamlines(output, metadata, paths)
+
+
+@micro.command()
+@click.pass_context
 def allocate(ctx):
     '''Allocate source cell GIDS by region, and store them for use when assigning target GIDS'''
     from white_matter_projections import micro

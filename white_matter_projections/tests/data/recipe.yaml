@@ -30,7 +30,7 @@ populations:
       filters: {'synapse_type': 'EXC'}
 
 projections:
-    - source: POP1_ALL_LAYERS
+    - source: POP1_ALL_LAYERS # ECT
       mapping_coordinate_system:
           base_system: Allen Dorsal Flatmap
           x: [297.67, 449.82, 601.97]
@@ -39,7 +39,7 @@ projections:
         - projection_name: PROJ1a_ipsi
           source_filters: []
           hemisphere: ipsi
-          population: POP2_ALL_LAYERS
+          population: POP2_ALL_LAYERS # MOS
           density: 0.053503077140383916
           presynaptic_mapping:
               mapping_variance: 21.61890
@@ -59,7 +59,7 @@ projections:
         - projection_name: PROJ1b_contra
           source_filters: []
           hemisphere: contra
-          population: POP4_ALL_LAYERS
+          population: POP4_ALL_LAYERS # FRP
           density: 0.007335306870955624
           presynaptic_mapping:
               mapping_variance: 21.61890
@@ -79,7 +79,7 @@ projections:
         - projection_name: PROJ1c_ipsi
           source_filters: []
           hemisphere: ipsi
-          population: POP3_ALL_LAYERS
+          population: POP3_ALL_LAYERS # ACAd
           density: 0.007335306870955624
           presynaptic_mapping:
               mapping_variance: 21.61890
@@ -96,7 +96,7 @@ projections:
             - name: type_1
               fraction: 1.0
 
-    - source: POP2_ALL_LAYERS
+    - source: POP2_ALL_LAYERS # MOS
       mapping_coordinate_system:
           base_system: Allen Dorsal Flatmap
           x: [297.67, 449.82, 601.97]
@@ -105,7 +105,7 @@ projections:
         - projection_name: PROJ2a_ipsi
           source_filters: []
           hemisphere: ipsi
-          population: POP4_ALL_LAYERS
+          population: POP4_ALL_LAYERS # FRP
           density: 0.007335306870955624
           presynaptic_mapping:
               mapping_variance: 21.61890
@@ -125,7 +125,7 @@ projections:
         - projection_name: PROJ2b_contra
           source_filters: []
           hemisphere: contra
-          population: POP4_ALL_LAYERS
+          population: POP4_ALL_LAYERS # FRP
           density: 0.01390296534843915
           presynaptic_mapping:
               mapping_variance: 21.61890
@@ -143,26 +143,26 @@ projections:
               fraction: 1.0
 
 p-types:
-    - population: SUB_POP4_L23
+    - population: SUB_POP4_L23 # FRP
       fractions:
-        PROJ1a_ipsi: 0.1
-        PROJ1b_contra: 0.2
-        PROJ2a_ipsi: 0.3
+        PROJ1a_ipsi: 0.1 # MOS
+        PROJ1b_contra: 0.2 # FRP
+        PROJ2a_ipsi: 0.3 # FRP
       interaction_mat:
           projections: [PROJ1a_ipsi,
                         PROJ2a_ipsi]
           strengths: [2, ]
 
-    - population: POP2_ALL_LAYERS
+    - population: POP2_ALL_LAYERS # MOS
       fractions:
-        PROJ1a_ipsi: 0.4
+        PROJ1a_ipsi: 0.4 # MOS
 
-    - population: POP3_ALL_LAYERS
+    - population: POP3_ALL_LAYERS # ACAd
       fractions:
-        PROJ1a_ipsi: 0.1
-        PROJ1b_contra: 0.3
-        PROJ1c_ipsi: 0.2
-        PROJ2b_contra: 0.1
+        PROJ1a_ipsi: 0.1   # MOS
+        PROJ1b_contra: 0.3 # FRP
+        PROJ1c_ipsi: 0.2 # ACAd
+        PROJ2b_contra: 0.1 # FRP
 
 layer_profiles:
     - name: profile_1
