@@ -426,8 +426,7 @@ def _parse_populations(populations, hier):
          for layer in pop['atlas_region']['subregions']
          ],
         columns=['population', 'region', 'layer', 'subregion'])
-    pop_cat = pd.Categorical(  # pylint: disable=unexpected-keyword-arg
-        populations.population.unique(), dtype='category', ordered=False)
+    pop_cat = CategoricalDtype(populations.population.unique())
     populations.population = populations.population.astype(pop_cat)
 
     ids, removed = hierarchy.populate_brain_region_ids(

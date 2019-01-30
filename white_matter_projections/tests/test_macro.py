@@ -7,9 +7,9 @@ from pandas.testing import assert_frame_equal
 
 def test__parse_populations():
     pop_cat, populations = macro._parse_populations(RECIPE['populations'], HIER)
-    ok_('POP1_ALL_LAYERS' in pop_cat)
-    ok_('SUB_POP4_L23' in pop_cat)
-    ok_('POP4_ALL_LAYERS' in pop_cat)
+    ok_('POP1_ALL_LAYERS' in pop_cat.categories)
+    ok_('SUB_POP4_L23' in pop_cat.categories)
+    ok_('POP4_ALL_LAYERS' in pop_cat.categories)
     eq_(len(populations), 26)
     eq_(len(populations.query('population == "POP1_ALL_LAYERS"')), 6)
     SUB_POP4_L23 = populations.query('population == "SUB_POP4_L23"')
