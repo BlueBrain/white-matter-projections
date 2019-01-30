@@ -114,7 +114,7 @@ def draw_region_outlines(ax, hier, flat_id, regions, labels='all', only_right=Fa
                     color='white')
 
 
-def draw_module_flat_map(ax, id2color, flat_map, regions):
+def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=True):
     '''draw flat map to `ax` colored by module, with outlines
 
     Args:
@@ -122,18 +122,24 @@ def draw_module_flat_map(ax, id2color, flat_map, regions):
         id2color: dict of region id to color
         flat_map: flat_mapping.FlatMap object
         regions: iterable of regions to be drawn
+        only_right(bool): if true, only the right side of the flatmap is drawn
     '''
     flat_region_id = flat_map.make_flat_id_region_map(regions)
 
     # assign RGB colors to equivalently shaped flat region
     flat_id = np.zeros(flat_region_id.shape + (3, ), dtype=int)
     for id_, color in id2color.items():
-        flat_id[np.nonzero(flat_id == id_)] = color
+        idx = np.nonzero(flat_region_id == id_)
+        flat_id[idx] = color
 
-    midline = flat_id.shape[1] // 2
+    midline = 0
+    if only_right:
+        midline = flat_id.shape[1] // 2
+
     ax.imshow(flat_id[:, midline:])
 
-    draw_region_outlines(ax, flat_map.hierarchy, flat_region_id, regions, only_right=True)
+    draw_region_outlines(ax, flat_map.hierarchy, flat_region_id, regions,
+                         only_right=only_right)
 
     return midline
 
