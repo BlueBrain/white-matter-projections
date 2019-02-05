@@ -27,6 +27,7 @@ setup(
         'projectionizer>=1.1.0.dev3',
         'pyarrow>=0.11.1',
         'pyyaml>=3.12',
+        'requests>=2.19.1',
         'seaborn>=0.8.1',
         'voxcell>=2.4.0',
     ],
