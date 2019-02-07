@@ -8,7 +8,6 @@ from contextlib import contextmanager
 from pandas.api.types import CategoricalDtype
 from voxcell.hierarchy import Hierarchy
 from voxcell.voxel_data import VoxelData
-import yaml
 
 
 BASEDIR = os.path.dirname(__file__)

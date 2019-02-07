@@ -316,6 +316,56 @@ def assignment(ctx, target_population, side):
     micro.assignment(output, config, allocations, projections_mapping, mapper, side, closest_count)
 
 
+@micro.command()
+@click.option('-p', '--population', 'target_population', required=True)
+@click.option('-s', '--side', type=click.Choice(('left', 'right')), default='right')
+@click.pass_context
+def concat_assignments(ctx, target_population, side):
+    config, output = ctx.obj['config'], ctx.obj['output']
+    projections = config.recipe.projections
+
+    if target_population == 'all':
+        target_populations = projections.target_population.unique()
+        target_populations = set(target_populations)
+        target_populations.remove('ORBvl_ALL_LAYERS')
+        target_populations = list(target_populations)
+    else:
+        target_populations = (target_population, )
+
+    base_path = os.path.join(output, micro.ALLOCATED_PATH, side)
+    for target_population in target_populations:
+        output_path = os.path.join(output, '%s_%s_proj_nrn.feather' % (target_population, side))
+        if os.path.exists(output_path):
+            L.warning('Already have %s, delete it if it needs to be recreated', output_path)
+            continue
+
+        L.info('Doing target_population: %s', target_population)
+        projection_names = projections.query('target_population == @target_population')
+        syns, missing = [], []
+        for name, synapse_type in projection_names[['projection_name', 'synapse_type_name']].values:
+            path = os.path.join(base_path, name + '.feather')
+            if not os.path.exists(path):
+                missing.append(name)
+                continue
+            L.debug('Loading: %s', path)
+            new_syns = utils.read_frame(path)
+            new_syns['synapse_type_name'] = int(synapse_type[-1])
+            syns.append(new_syns)
+
+        L.debug('Missing feathers for %s', missing)
+
+        L.debug('Concat %d frames', len(syns))
+        syns = pd.concat(syns)
+
+        syns['sgid'] = pd.to_numeric(syns['sgid'], downcast='unsigned')
+
+        L.debug('Sorting %s', output_path)
+        syns.sort_values(['tgid', 'sgid'], inplace=True)
+        syns.reset_index(drop=True, inplace=True)
+        L.debug('Writing %s', output_path)
+        utils.write_frame(output_path, syns)
+
+
 @cli.group()
 @click.option('-c', '--config', type=click.Path(exists=True), required=True)
 @click.option('-o', '--output', required=True)
