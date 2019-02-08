@@ -1,5 +1,4 @@
 '''voxel space to 2d flat space'''
-import collections
 import itertools as it
 import json
 import logging
@@ -129,7 +128,7 @@ class FlatMap(object):
                    center_line_2d, center_line_3d)
 
     def make_flat_id_region_map(self, regions):
-        '''find most popular region IDs for each flat_map value, based on path through voxels
+        '''find most popular *parent* region IDs for each flat_map value, based on path in voxels
 
         Args;
             regions(list of str): regions that are considered
@@ -137,36 +136,38 @@ class FlatMap(object):
         Return:
             ndarray of shape flat_map.view_lookup with the most popular id of region
         '''
-        region2ids = {region: self.hierarchy.collect('acronym', region, 'id')
-                      for region in regions}
-        id2region = {id_: region
-                     for region, ids in region2ids.items()
-                     for id_ in ids}
-        region2id = {region: self.hierarchy.find('acronym', region)[0].data['id']
-                     for region in regions}
-        region2id[Ellipsis] = -1
+        counts = np.count_nonzero(self.paths, axis=1)
+        df = pd.DataFrame({'path_row': np.repeat(np.arange(len(self.paths)), counts),
+                           'flat_index': self.paths[np.nonzero(self.paths)].ravel()})
+        df['subregion_id'] = self.brain_regions.raw.ravel()[df['flat_index']]
+        df = df[df.subregion_id > 0]
 
-        def _get_most_popular_region(idx):
-            path = self.paths[self.view_lookup[idx]]
-            path = path[path.nonzero()]
-            ids = self.brain_regions.raw.ravel()[path]
-            count = collections.Counter((id2region.get(id_, Ellipsis) for id_ in ids))
-            if Ellipsis in count:
-                count.pop(Ellipsis)
-            most_common = count.most_common(1)
-            if not most_common:
-                L.warning('%s does not have a mapping for regions', idx)
-                return Ellipsis
-            return most_common[0][0]
+        nz = np.nonzero(self.view_lookup >= 0)
+        row2flat_index = pd.Series(np.ravel_multi_index(nz, self.view_lookup.shape),
+                                   index=self.view_lookup[nz], name='flat_idx')
+
+        region2id = pd.DataFrame([(region, self.hierarchy.find('acronym', region)[0].data['id'])
+                                  for region in regions],
+                                 columns=['subregion', 'parent_region_id', ]).set_index('subregion')
+        parent_ids = (pd.DataFrame([(id_, region)
+                                    for region in regions
+                                    for id_ in self.hierarchy.collect('acronym', region, 'id')],
+                                   columns=['id', 'parent_region']).set_index('id')
+                      .join(region2id, on='parent_region')
+                      )
+        df = df.join(parent_ids, on='subregion_id', how='inner')
+
+        most_popular = df.groupby('path_row').parent_region_id.agg(
+            lambda x: pd.Series.mode(x)[0])
+
+        nz = np.nonzero(self.view_lookup >= 0)
+        row2flat_index = pd.DataFrame(np.ravel_multi_index(nz, self.view_lookup.shape),
+                                      index=self.view_lookup[nz], columns=['flat_idx', ])
+        most_popular = row2flat_index.join(most_popular, how='inner')
 
         flat_id = np.zeros_like(self.view_lookup, dtype=int)
-        for idx in zip(*np.nonzero(self.view_lookup >= 0)):
-            most_popular = _get_most_popular_region(idx)
-            if most_popular not in region2id:
-                L.warning('Most popular %s missing from region2id, skipping', most_popular)
-                continue
-            flat_id[idx] = region2id[most_popular]
-
+        flat_id[nz] = -1
+        flat_id.ravel()[most_popular.flat_idx.values] = most_popular.parent_region_id.values
         return flat_id
 
 
