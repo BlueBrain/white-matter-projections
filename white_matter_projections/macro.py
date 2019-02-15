@@ -421,16 +421,34 @@ def _parse_populations(populations, hier):
                 layer: layer name
                 subregion: name of hierarchy region, including layer
                 id: id in hierarchy, -1 if the region/layer combo doesn't exist
+                population_filter: Catogory of 'Empty'/EXC/intratelencephalic or
+                'pyramidal tract'
     '''
-    populations = pd.DataFrame(
-        [(pop['name'], pop['atlas_region']['name'], layer,
-          hierarchy.get_full_target_acronym(pop['atlas_region']['name'], layer))
-         for pop in populations
-         for layer in pop['atlas_region']['subregions']
-         ],
-        columns=['population', 'region', 'layer', 'subregion'])
+    data = []
+    for pop in populations:
+        for layer in pop['atlas_region']['subregions']:
+            subregion = hierarchy.get_full_target_acronym(pop['atlas_region']['name'], layer)
+
+            if not pop['filters']:
+                pop_filter = 'Empty'
+            elif 'proj_type' in pop['filters']:
+                pop_filter = pop['filters']['proj_type']
+                assert pop_filter in ('intratelencephalic', 'pyramidal tract', ), \
+                    'only can consider "intratelencephalic", "pyramidal tract",  at the moment'
+            else:
+                pop_filter = pop['filters']['synapse_type']
+                assert pop_filter == 'EXC', 'only can consider EXC at the moment'
+
+            row = (pop['name'], pop['atlas_region']['name'], layer, subregion, pop_filter)
+            data.append(row)
+
+    columns = ['population', 'region', 'layer', 'subregion', 'population_filter']
+    populations = pd.DataFrame(data, columns=columns)
+
     pop_cat = CategoricalDtype(populations.population.unique())
     populations.population = populations.population.astype(pop_cat)
+
+    populations.population_filter = populations.population_filter.astype('category')
 
     ids, removed = hierarchy.populate_brain_region_ids(
         populations[['region', 'layer']], hier)

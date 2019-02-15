@@ -21,7 +21,7 @@ populations:
       atlas_region:
           name: FRP
           subregions: [l1, l2, l3, l4, l5, l6]
-      filters: []
+      filters: {'synapse_type': 'EXC', 'proj_type': 'intratelencephalic'}
 
     - name: SUB_POP4_L23
       atlas_region:

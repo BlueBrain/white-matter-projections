@@ -212,7 +212,7 @@ def stats(ctx, population):
 
     sources = config.recipe.projections.query('source_population == @population')
     if len(sources):
-        region_cells = config.cells(only_projecting=True).query('region in @region_names')
+        region_cells = config.get_cells().query('region in @region_names')
         print_color('Potential source cells in population: %d', len(region_cells))
 
         print_color('Projections with population as source:')
@@ -224,7 +224,7 @@ def stats(ctx, population):
 
     targets = config.recipe.projections.query('target_population == @population')
     if len(targets):
-        region_cells = config.cells().query('region in @region_names')
+        region_cells = config.get_cells().query('region in @region_names')
         print_color('Potential target cells in population: %d', len(region_cells))
 
         print_color('Projections with population as target:')
@@ -281,8 +281,7 @@ def allocate(ctx):
                     allocations_path, color='red')
         return
 
-    allocations = micro.allocate_projections(config.recipe,
-                                             config.cells(only_projecting=True))
+    allocations = micro.allocate_projections(config.recipe, config.get_cells)
 
     micro.save_allocations(allocations_path, allocations)
 
@@ -410,7 +409,7 @@ def source_locations(ctx):
     allocations = micro.load_allocations(allocations_path, config.recipe.projections_mapping)
 
     sgids = np.hstack(allocations.sgids.values).ravel()
-    src_cells = config.cells(only_projecting=True)
+    src_cells = config.get_cells()
     mapper = mapping.CommonMapper.load_default(config)
 
     name = 'src_positions.png'
@@ -436,7 +435,7 @@ def used_locations(ctx, target_population, side):
     sgids = [utils.read_frame(f, columns=['sgid']) for f in files]
     sgids = pd.concat(sgids)
 
-    src_cells = config.cells()#only_projecting=True)
+    src_cells = config.get_cells()
     mapper = mapping.CommonMapper.load_default(config)
 
     name = 'used_src_positions_%s_%s.png' % (target_population, side)
@@ -501,12 +500,8 @@ def allocation_stats(ctx, population):
     allocations_path = os.path.join(output, 'allocations.h5')
     allocations = micro.load_allocations(allocations_path, recipe.projections_mapping)
 
-    fractions, interactions = micro.allocation_stats(recipe.ptypes,
-                                                     recipe.populations,
-                                                     recipe.ptypes_interaction_matrix,
-                                                     config.cells(only_projecting=True),
-                                                     allocations,
-                                                     population)
+    fractions, interactions = micro.allocation_stats(
+        recipe, config.get_cells, allocations, population)
 
     print_color('Population Fractions')
     print(fractions.to_string(max_rows=None))

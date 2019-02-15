@@ -42,6 +42,7 @@ class Config(object):
         '''dictionary containing all keys in config'''
         with open(self.config_path) as fd:
             config = yaml.load(fd)
+
         return config
 
     @lazy
@@ -114,14 +115,14 @@ class Config(object):
         return flat_map
 
     @lru_cache()
-    def cells(self, only_projecting=False):
+    def get_cells(self, population_filter=None):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
         cells = self.circuit.cells.get()
 
-        if only_projecting:
-            projecting_mtypes = self.config['projecting_mtypes']
-            projecting_mtypes = projecting_mtypes  # trick pylint due to df.query
-            cells = cells.query('mtype in @projecting_mtypes')
+        if population_filter is not None:
+            categories = self.config['populations_filters'][population_filter]
+            categories = categories
+            cells = cells.query('mtype in @categories')
 
         return cells
 

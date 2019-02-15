@@ -231,20 +231,28 @@ def _ptype_to_counts(cell_count, ptype, interactions):
     return total_counts, overlap_counts
 
 
-def get_gids_py_population(populations, cells, source_population):
+def get_gids_by_population(populations, get_cells, source_population):
     '''for a `population`, get all the gids from `cells` that are in that population'''
-    source_population = source_population  # trick pylint so variable can be used in query
-    region_names = set(populations.query('population == @source_population').subregion)
+    population = populations.set_index('population').loc[source_population]
 
-    layers = populations.query('population == @source_population').layer
+    if isinstance(population, pd.DataFrame):
+        region_names = set(population.subregion)
+        layers = list(population.layer)
+        population_filter = population.population_filter[0]
+    else:
+        region_names = set([population.subregion])
+        layers = [population.layer]
+        population_filter = population.population_filter
+
     layers = [int(l[1]) for l in layers]
 
+    cells = get_cells(population_filter)
     region_names = region_names  # trick pylint so variable can be used in query
     gids = cells.query('region in @region_names and layer in @layers').index.values
     return gids
 
 
-def allocate_projections(recipe, cells):
+def allocate_projections(recipe, get_cells):
     '''Allocate *all* projections in recipe based on ptypes in recipe
 
     Args:
@@ -267,7 +275,7 @@ def allocate_projections(recipe, cells):
 
         L.info('Allocating for source population: %s', source_population)
 
-        gids = get_gids_py_population(recipe.populations, cells, source_population)
+        gids = get_gids_by_population(recipe.populations, get_cells, source_population)
         interactions = recipe.ptypes_interaction_matrix.get(source_population, None)
 
         total_counts, overlap_counts = _ptype_to_counts(len(gids), ptype, interactions)
@@ -279,7 +287,7 @@ def allocate_projections(recipe, cells):
     return ret
 
 
-def allocation_stats(recipe, cells, allocations, source_population):
+def allocation_stats(recipe, get_cells, allocations, source_population):
     '''calculate the expected and allocated gids
 
     useful to verify how well `allocate_projections` works
@@ -301,7 +309,7 @@ def allocation_stats(recipe, cells, allocations, source_population):
               .query('source_population == @source_population')
               )
     interactions = recipe.ptypes_interaction_matrix.get(source_population, None)
-    gids = get_gids_py_population(recipe.populations, cells, source_population)
+    gids = get_gids_by_population(recipe.populations, get_cells, source_population)
 
     total_counts, overlap_counts = _ptype_to_counts(len(gids), ptypes, interactions)
 
@@ -446,7 +454,7 @@ def assignment(output, config, allocations, projections_mapping, mapper, side, c
     # pylint: disable=too-many-locals
     samples_path = os.path.join(output, sampling.SAMPLE_PATH)
 
-    left_cells, right_cells = partition_cells_left_right(config.cells(only_projecting=True),
+    left_cells, right_cells = partition_cells_left_right(config.get_cells(),
                                                          config.flat_map.center_line_3d)
 
     columns = ['projection_name', 'source_population', 'sgids', 'hemisphere', ]

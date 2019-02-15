@@ -238,7 +238,7 @@ def draw_projection(ax, config, allocations, syns, projection_name, side):
     mapper = mapping.CommonMapper.load_default(config)
     hemisphere = recipe.projections.set_index('projection_name').loc[projection_name].hemisphere
 
-    left_cells, right_cells = micro.partition_cells_left_right(config.cells(),
+    left_cells, right_cells = micro.partition_cells_left_right(config.get_cells(),
                                                                flat_map.center_line_3d)
 
     source_population, all_sgids = allocations.loc[projection_name][['source_population', 'sgids']]

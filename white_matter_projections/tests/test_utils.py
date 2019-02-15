@@ -31,7 +31,7 @@ class TestConfig(object):
             ok_(isinstance(getattr(self.config, attr_), type_))
 
         #ok_(isinstance(self.config.voxel_to_flat(), voxcell.VoxelData))  # too slow
-        #ok_(isinstance(self.config.cells()), pd.DataFrame)  # need a valid circuit
+        #ok_(isinstance(self.config.get_cells()), pd.DataFrame)  # need a valid circuit
 
     def test_region_layer_heights(self):
         ret = self.config.region_layer_heights

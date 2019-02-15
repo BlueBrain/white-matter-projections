@@ -5,16 +5,25 @@ from utils import POP_CAT, RECIPE, RECIPE_TXT, HIER, tempdir
 from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
 
+
 def test__parse_populations():
     pop_cat, populations = macro._parse_populations(RECIPE['populations'], HIER)
+
+    # check categories
     ok_('POP1_ALL_LAYERS' in pop_cat.categories)
     ok_('SUB_POP4_L23' in pop_cat.categories)
     ok_('POP4_ALL_LAYERS' in pop_cat.categories)
+
+    # check populations
     eq_(len(populations), 26)
     eq_(len(populations.query('population == "POP1_ALL_LAYERS"')), 6)
     SUB_POP4_L23 = populations.query('population == "SUB_POP4_L23"')
     eq_(tuple(SUB_POP4_L23[['region', 'layer', 'id']].values[0]),
         ('FRP', 'l2', 666))
+    eq_(populations.population_filter.nunique(), 3)
+
+    eq_(dict(populations.population_filter.value_counts()),
+        {'intratelencephalic': 6, 'EXC': 2, 'Empty': 18})
 
 
 def test__parse_projections():
