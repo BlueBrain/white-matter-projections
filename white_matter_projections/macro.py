@@ -38,8 +38,6 @@ L = logging.getLogger(__name__)
 
 class MacroConnections(object):
     '''Load and manipulate macro recipe'''
-    HEMISPHERE = CategoricalDtype(  # pylint: disable=unexpected-keyword-arg
-        categories=['ipsi', 'contra'])
     SERIALIZATION_NAME = 'MacroConnections'
     SERIALIZATION_PATHS = {'populations': 'populations.feather',
                            'projections': 'projections.feather',
@@ -544,7 +542,7 @@ def _parse_projections(projections, pop_cat):
     projections = pd.DataFrame(data, columns=columns)
     projections.source_population = projections.source_population.astype(pop_cat)
     projections.target_population = projections.target_population.astype(pop_cat)
-    projections.hemisphere = projections.hemisphere.astype(MacroConnections.HEMISPHERE)
+    projections.hemisphere = projections.hemisphere.astype(utils.HEMISPHERE)
 
     if missing_targets:
         L.warning('Sources %s do not have any associated targets', missing_targets)

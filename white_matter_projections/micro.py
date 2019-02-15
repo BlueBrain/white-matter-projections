@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from joblib import Parallel, delayed
-from white_matter_projections import sampling, utils
+from white_matter_projections import sampling, utils, streamlines
 
 
 ASSIGNMENT_PATH = 'ASSIGNED'
@@ -360,7 +360,7 @@ def separate_source_and_targets(left_cells, right_cells, sgids, hemisphere, side
         side(str): 'left' or 'right', which hemisphere we're working in
 
     Returns:
-       src cell xyz positions
+       source cells
        synapses dataframe
     '''
     assert hemisphere in ('ipsi', 'contra', )
@@ -378,9 +378,9 @@ def separate_source_and_targets(left_cells, right_cells, sgids, hemisphere, side
             cells = right_cells
 
     sgids = sgids[np.isin(sgids, cells.index)]
-    src_cell_positions = cells.loc[sgids][utils.XYZ]
+    source_cells = cells.loc[sgids]
 
-    return src_cell_positions
+    return source_cells
 
 
 def _assign_groups(src_flat, tgt_flat, sigma, closest_count):
@@ -449,16 +449,67 @@ def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=No
     return src_flat.index[ids]
 
 
+def _calculate_delay(src_cells, syns, streamline_metadata, conduction_velocity):
+    '''for all the synapse locations, assign a streamline
+
+    Args:
+        src_cells(DataFrame): positions with index of GID
+        syns(DataFrame): target synapses positions and sgid
+        streamline_metadata(DataFrame): describes the inter-region distance
+        between from points within the regions, a row within this dataset
+        is chosen, and saved so that the streamlines can be visualized
+        conduction_velocity(dict): values for inter and intra region velocities
+        in um/ms
+    '''
+    # pylint: disable=too-many-locals
+    START_COLS = ['start_x', 'start_y', 'start_z']
+    END_COLS = ['end_x', 'end_y', 'end_z']
+    NEEDED_COLS = START_COLS + END_COLS + ['length']
+
+    metadata = streamline_metadata.set_index('path_row')
+    src_cells = src_cells[utils.XYZ]
+
+    path_rows = (metadata .index .values)
+
+    path_rows = np.random.choice(path_rows, size=len(syns))
+    gid2row = np.vstack((syns.sgid.values, path_rows.astype(np.int64))).T
+    # TODO: tradeoff between memory...this takes 3x longer than the rest of the function
+    # for now, try going fast
+    # gid2row = np.unique(gid2row, axis=0)
+
+    metadata = metadata.loc[path_rows, NEEDED_COLS]
+    src_start = metadata[START_COLS].values
+    src_end = src_cells.loc[syns.sgid].values
+    src_distance = np.linalg.norm(src_start - src_end, axis=1)
+
+    tgt_start = metadata[END_COLS].values
+    tgt_distance = np.linalg.norm(tgt_start - syns[utils.XYZ].values, axis=1)
+
+    inter_distance = metadata['length'].values
+
+    delay = ((src_distance + tgt_distance) / conduction_velocity['intra_region'] +
+             inter_distance / conduction_velocity['inter_region'])
+
+    return delay.astype(np.float32), gid2row
+
+
 def assignment(output, config, allocations, projections_mapping, mapper, side, closest_count):
     '''perform assignment'''
     # pylint: disable=too-many-locals
+    populations = config.recipe.populations
     samples_path = os.path.join(output, sampling.SAMPLE_PATH)
 
     left_cells, right_cells = partition_cells_left_right(config.get_cells(),
                                                          config.flat_map.center_line_3d)
 
-    columns = ['projection_name', 'source_population', 'sgids', 'hemisphere', ]
-    for projection_name, source_population, sgids, hemisphere in allocations[columns].values:
+    streamline_metadata = streamlines.load(output, only_metadata=True)
+    conduction_velocity = config.config['conduction_velocity']
+
+    columns = ['projection_name', 'source_population', 'target_population',
+               'sgids', 'hemisphere', ]
+    for keys in allocations[columns].values:
+        projection_name, source_population, target_population, sgids, hemisphere = keys
+
         output_path = os.path.join(output, ASSIGNMENT_PATH, side)
         utils.ensure_path(output_path)
         output_path = os.path.join(output_path, projection_name + '.feather')
@@ -469,14 +520,13 @@ def assignment(output, config, allocations, projections_mapping, mapper, side, c
         L.debug('Doing %s -> %s', projection_name, output_path)
 
         # src coordinates in flat space
-        src_cell_positions = separate_source_and_targets(
+        src_cells = separate_source_and_targets(
             left_cells, right_cells, sgids, hemisphere, side)
 
-        flat_src_uvs = mapper.map_points_to_flat(src_cell_positions.values)
+        flat_src_uvs = mapper.map_points_to_flat(src_cells[utils.XYZ].values)
         src_coordinates = mapper.map_flat_to_flat(
             source_population, projection_name, flat_src_uvs, utils.is_mirror(side, hemisphere))
-        src_coordinates = pd.DataFrame(
-            src_coordinates, index=src_cell_positions.index)
+        src_coordinates = pd.DataFrame(src_coordinates, index=src_cells.index)
 
         # tgt synapses in flat space
         syns = utils.read_frame(os.path.join(samples_path, side, projection_name + '.feather'))
@@ -485,4 +535,15 @@ def assignment(output, config, allocations, projections_mapping, mapper, side, c
 
         sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
         syns['sgid'] = assign_groups(src_coordinates, flat_tgt_uvs, sigma, closest_count)
+
+        source_region = utils.population2region(populations, source_population)
+        target_region = utils.population2region(populations, target_population)
+        source_region, target_region = source_region, target_region  # trick pylint
+        metadata = streamline_metadata.query('source == @source_region and '
+                                             'target == @target_region and '
+                                             'target_side == @side and '
+                                             'hemisphere == @hemisphere'
+                                             )
+        syns['delay'], gid2row = _calculate_delay(src_cells, syns, metadata, conduction_velocity)
+        np.savetxt(output_path + '_gid2row.npy', gid2row)
         utils.write_frame(output_path, syns)

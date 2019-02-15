@@ -38,7 +38,7 @@ def test_get_connected_regions():
                              ('ACAd', 'FRP', 'contra'), # POP3_ALL_LAYERS -> PROJ1b_contra
                              ],
                             columns=['source_region', 'target_region', 'hemisphere'])
-    expected['hemisphere'] = expected.hemisphere.astype(macro.MacroConnections.HEMISPHERE)
+    expected['hemisphere'] = expected.hemisphere.astype(sl.utils.HEMISPHERE)
     columns = ['source_region', 'target_region', 'hemisphere']
     assert_frame_equal(ret.sort_values(columns).reset_index(drop=True),
                        expected.sort_values(columns).reset_index(drop=True))
@@ -130,9 +130,17 @@ def test_get_source_target_from_path():
     eq_(target, 'target')
 
 
-def test_convert_csv():
+def test__assign_side_and_hemisphere():
+    metadata = pd.DataFrame([(0, 10), (10, 0), (10, 10), (0, 0)],
+        columns=['start_z', 'end_z'])
+    sl._assign_side_and_hemisphere(metadata, center_line_3d=5)
+    eq_(list(metadata.target_side), ['right', 'left', 'right', 'left'])
+    eq_(list(metadata.hemisphere), ['contra', 'contra', 'ipsi', 'ipsi'])
+
+
+def test__convert_csv():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
-    metadata, paths = sl.convert_csv(csv_path)
+    metadata, paths = sl._convert_csv(csv_path)
     eq_(len(metadata), 2)
     eq_(tuple(metadata.iloc[1][['start_x', 'start_y', 'start_z']].values), paths[1][0])
     eq_(tuple(metadata.iloc[1][['end_x', 'end_y', 'end_z']].values), paths[1][-1])
@@ -148,17 +156,17 @@ def test_convert_csv():
 def test_convert_csvs():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
     csv_paths = [csv_path, csv_path]
-    metadata, streamlines = sl.convert_csvs(csv_paths, center_line_3d=None)
+    metadata, streamlines = sl.convert_csvs(csv_paths, center_line_3d=5700, create_mirrors=False)
 
     eq_(len(metadata), 4)
     eq_(len(streamlines), 4)
     eq_(len(streamlines[0]), 35)
 
 
-def test_mirror_streamlines():
+def test__mirror_streamlines():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
-    metadata, streamlines = sl.convert_csvs([csv_path, ])
-    metadata, streamlines = sl.mirror_streamlines(metadata, streamlines, center_line_3d=5700)
+    metadata, streamlines = sl.convert_csvs([csv_path, ], center_line_3d=5700, create_mirrors=False)
+    metadata, streamlines = sl._mirror_streamlines(metadata, streamlines, center_line_3d=5700)
 
     eq_(len(streamlines), 2)
     eq_(len(streamlines[0]), 35)
@@ -171,13 +179,13 @@ def test_mirror_streamlines():
     eq_(list(metadata.iloc[1][['end_x', 'end_y', 'end_z']].values), streamlines[1][-1])
 
 
-def test_load_save_streamlines():
+def test_load_save():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
-    metadata, streamlines = sl.convert_csvs([csv_path, ])
+    metadata, streamlines = sl.convert_csvs([csv_path, ], center_line_3d=5700, create_mirrors=True)
 
     with utils.tempdir('test_load_save_streamlines') as tmp:
-        sl.save_streamlines(tmp, metadata, streamlines)
-        new_metadata, new_streamlines = sl.load_streamlines(tmp)
+        sl.save(tmp, metadata, streamlines)
+        new_metadata, new_streamlines = sl.load(tmp)
         assert_frame_equal(metadata, new_metadata)
         eq_(map(tuple, new_streamlines[0]), streamlines[0])
 
@@ -190,7 +198,7 @@ def test_write_output():
                                   [20, 200],
                                   ],
                                  columns=columns)
-    sgid2path_row
+
     with utils.tempdir('test_write_output') as tmp:
         sl.write_output(tmp, streamlines, sgid2path_row)
         path = os.path.join(tmp, 'streamline.rows')

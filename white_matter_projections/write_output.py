@@ -103,7 +103,7 @@ def create_synapse_data(syn2_property_name, dataset, df, synapse_data):
     elif syn2_property_name in DATASET_PHYSIOLOGY:
         ret = distribute_param(syn2_property_name)
     elif syn2_property_name == 'delay':
-        ret = 100 * np.ones(len(df))  # TODO: calculate real delay
+        ret = df.delay.values
     elif syn2_property_name == 'syn_type_id':
         ret = 120 * np.ones(len(df))  # TODO: get real syn type?
 

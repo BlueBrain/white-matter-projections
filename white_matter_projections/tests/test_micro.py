@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from nose.tools import ok_, eq_
-from white_matter_projections import micro
+from white_matter_projections import micro, utils
 from numpy.testing import assert_allclose
 from utils import tempdir, gte_
 
@@ -258,6 +258,36 @@ def test_assign_groups():
                              ], index=(10, 20))
     res = micro.assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10, n_jobs=1)
     eq_(list(res), [10, 20])
+
+
+def test__calculate_delay():
+    np.random.seed(42)
+    src_cells = pd.DataFrame([(55., 0., 0.,),
+                              (65., 0., 0.,),
+                              (75., 0., 0.,),
+                              (85., 0., 0.,), ],
+                             columns=utils.XYZ,
+                             index=[1, 2, 3, 4])
+    syns = pd.DataFrame([(1, 1., 0., 0.),
+                         (2, 2., 0., 0.),
+                         (2, 3., 0., 0.),
+                         (4, 4., 0., 0.), ],
+                         columns=['sgid', ] + utils.XYZ)
+    columns = ['path_row', 'length', 'start_x', 'start_y', 'start_z', 'end_x', 'end_y', 'end_z', ]
+    streamline_metadata = pd.DataFrame([(3, 3000., 0., 0., 0., 3., 0., 0.),
+                                        (4, 4000., 1., 0., 0., 4., 0., 0.),
+                                        (5, 5000., 2., 0., 0., 5., 0., 0.),
+                                        ],
+                                       columns=columns)
+    conduction_velocity = {'inter_region': 10.,
+                           'intra_region': 1.
+                           }
+
+    delay, gid2row = micro._calculate_delay(src_cells, syns, streamline_metadata,
+                                            conduction_velocity=conduction_velocity)
+    eq_(set(gid2row[:, 1]), {3, 5})  # based on random picking
+    assert_allclose(gid2row[:, 0], syns.sgid.values)
+    eq_(list(delay), [557., 366., 565., 584.])
 
 
 #def test_assignment():

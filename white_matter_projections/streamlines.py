@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 import requests
 
-from white_matter_projections.utils import X, Y, Z
+from white_matter_projections import utils
+from white_matter_projections.utils import X, Y, Z, XYZ
 
 L = logging.getLogger(__name__)
 QUERY_STR = ('http://connectivity.brain-map.org/projection/csv?'
@@ -147,8 +148,8 @@ def get_streamline_per_region_connection(connected_regions, metadata, center_lin
         ret.append((source, target, hemisphere, 'right', row))
 
     ret = pd.DataFrame(ret, columns=['source', 'target', 'hemisphere', 'side', 'path_row'])
-    ret['hemisphere'] = ret.hemisphere.astype('category')
-    ret['side'] = ret.side.astype('category')
+    ret['hemisphere'] = ret.hemisphere.astype(utils.HEMISPHERE)
+    ret['side'] = ret.side.astype(utils.SIDE)
     return ret, missing
 
 
@@ -266,8 +267,20 @@ def get_source_target_from_path(csv_path):
     return source, target
 
 
-def convert_csv(csv_path):
-    '''extract metadata and path coordinates from from `csv_path`'''
+def _correct_metadata_dtypes(metadata):
+    # floats to 32bit
+    for name, axis in it.product(('injection', 'start', 'end'), XYZ):
+        name = name + '_' + axis
+        metadata[name] = metadata[name].astype(np.float32)
+    metadata['length'] = metadata['length'].astype(np.float32)
+
+    # integers
+    for name in ('region_id', 'path_row', ):
+        metadata[name] = pd.to_numeric(metadata[name], downcast='unsigned')
+
+
+def _convert_csv(csv_path):
+    '''extrace metadata and path coordinates from from `csv_path`'''
     df = pd.read_csv(csv_path)
     metadata = pd.DataFrame(index=df.id.astype(int))
     metadata.index.name = 'id'
@@ -302,27 +315,45 @@ def convert_csv(csv_path):
     return metadata, paths
 
 
-def convert_csvs(csv_paths, center_line_3d=None):
+def _assign_side_and_hemisphere(metadata, center_line_3d):
+    sides = (metadata.end_z > center_line_3d).astype(int)
+    metadata['target_side'] = pd.Categorical.from_codes(sides, dtype=utils.SIDE)
+
+    contras = (((metadata.start_z < center_line_3d) & (metadata.end_z > center_line_3d)) |
+               ((metadata.start_z > center_line_3d) & (metadata.end_z < center_line_3d))
+               ).astype(int)
+    metadata['hemisphere'] = pd.Categorical.from_codes(contras, dtype=utils.HEMISPHERE)
+
+
+def convert_csvs(csv_paths, center_line_3d, create_mirrors=True):
     '''convert and '''
     metadata, streamlines = [], []
     for csv_path in csv_paths:
-        metadata_, paths_ = convert_csv(csv_path)
+        metadata_, paths_ = _convert_csv(csv_path)
 
         metadata.append(metadata_)
         streamlines.extend(paths_)
 
-        if center_line_3d is not None:
-            metadata_, paths_ = mirror_streamlines(metadata_, paths_, center_line_3d)
+        if create_mirrors:
+            metadata_, paths_ = _mirror_streamlines(metadata_, paths_, center_line_3d)
             metadata.append(metadata_)
             streamlines.extend(paths_)
 
     metadata = pd.concat(metadata).reset_index(drop=True)
     metadata['path_row'] = np.arange(len(streamlines), dtype=int)
+    _assign_side_and_hemisphere(metadata, center_line_3d)
+
+    # remove ipsi connections w/ same source and target - those are local
+    # connectivity, not white-matter
+    mask = (metadata.source == metadata.target) & (metadata.hemisphere == 'ipsi')
+    metadata = metadata[np.invert(mask)]
+
+    _correct_metadata_dtypes(metadata)
 
     return metadata, streamlines
 
 
-def mirror_streamlines(metadata, streamlines, center_line_3d):
+def _mirror_streamlines(metadata, streamlines, center_line_3d):
     '''mirror all the streamlines over the center_line_3d
 
     Most of the injections are done only in one hemisphere, so the data
@@ -341,15 +372,24 @@ def mirror_streamlines(metadata, streamlines, center_line_3d):
     return metadata, ret
 
 
-def load_streamlines(path):
+def load(path, only_metadata=False):
     '''load_streamlines'''
-    metadata = pd.read_csv(os.path.join(path, STREAMLINES_NAME + '.csv'))
+    metadata = pd.read_csv(os.path.join(path, STREAMLINES_NAME + '.csv'),
+                           dtype={'target_side': utils.SIDE,
+                                  'hemisphere': utils.HEMISPHERE,
+                                  })
+    _correct_metadata_dtypes(metadata)
+
+    if only_metadata:
+        return metadata
+
     path = os.path.join(path, STREAMLINES_NAME + '.rows')
     streamlines = _read_streamlines_rows(path)
+
     return metadata, streamlines
 
 
-def save_streamlines(output, metadata, streamlines):
+def save(output, metadata, streamlines):
     '''save_streamlines'''
     metadata.to_csv(os.path.join(output, STREAMLINES_NAME + '.csv'), index=False)
     path = os.path.join(output, STREAMLINES_NAME + '.rows')

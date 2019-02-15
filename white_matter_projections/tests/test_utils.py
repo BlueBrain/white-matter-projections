@@ -123,9 +123,18 @@ def test_raster_triangle():
     assert_array_equal(ret, np.array([[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [2, 0]]))
 
 
+def test_population2region():
+    populations = pd.DataFrame([('Foo', 'FOO_REGION', 'l1', ),
+                                ('Foo', 'FOO_REGION', 'l2', ),
+                                ('Bar', 'BAR_REGION', 'l1', ),
+                                ('Bar', 'BAR_REGION', 'l2', )],
+                                columns=['population', 'region', 'layer', ])
+    population_name = 'Foo'
+    ret = utils.population2region(populations, population_name)
+    eq_(ret, 'FOO_REGION')
+
+
 #def test_is_mirror():
 #    ok_(False)
 #
 #
-#def test_population2region():
-#    ok_(False)

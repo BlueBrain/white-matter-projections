@@ -7,6 +7,7 @@ import logging
 from lazy import lazy
 import numpy as np
 import pandas as pd
+from pandas.api.types import CategoricalDtype
 import pyarrow
 from pyarrow import feather
 
@@ -25,6 +26,8 @@ L = logging.getLogger(__name__)
 X, Y, Z = 0, 1, 2
 cX, cY, cZ, cXYZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z], np.s_[:, :3]
 XYZ = list('xyz')
+HEMISPHERE = CategoricalDtype(categories=['ipsi', 'contra'], ordered=True)
+SIDE = CategoricalDtype(categories=['left', 'right'], ordered=True)
 
 
 class Config(object):
@@ -307,3 +310,10 @@ def is_mirror(side, hemisphere):
     '''
     return ((side == 'right' and hemisphere == 'contra') or
             (side == 'left' and hemisphere == 'ipsi'))
+
+
+def population2region(populations, population_name):
+    '''returns the region acronym for the hierarchy based on the population'''
+    populations = populations.query('population == @population_name')
+    assert len(populations), 'Population %s not found in populations' % population_name
+    return populations.iloc[0].region

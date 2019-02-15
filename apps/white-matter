@@ -265,7 +265,7 @@ def download_streamlines(ctx):
     csv_paths = glob(os.path.join(streamline_csvs, '*.csv'))
     metadata, paths = streamlines.convert_csvs(
         csv_paths, center_line_3d=config.flat_map.center_line_3d)
-    streamlines.save_streamlines(output, metadata, paths)
+    streamlines.save(output, metadata, paths)
 
 
 @micro.command()
