@@ -116,3 +116,9 @@ def test_get_voxel_to_flat_mapping():
                                             flat_map.view_lookup.shape)
                            ).T
         assert_allclose(mapping[-4:, :], [[2, 2]] * 4)
+
+        #test backfill
+        wanted_ids = {'two': [2]}
+        v2f.raw[1, 0, 0] = 0  # this should be filled in with the original value
+        flat_mapping._backfill_voxel_to_flat_mapping(v2f, flat_map, wanted_ids)
+        eq_(v2f.raw[1, 0, 0], 5)

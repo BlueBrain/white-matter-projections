@@ -274,3 +274,23 @@ def draw_projection(ax, config, allocations, syns, projection_name, side):
     # src_id = hier.find('acronym', src_region)[0].data['id']
     # tgt_id = hier.find('acronym', tgt_region)[0].data['id']
     # flat_region_id = flat_map.make_flat_id_region_map(config.regions)
+
+
+def draw_voxel_to_flat_mapping(ax, config, regions, mapper, alpha=0.5, color='limegreen'):
+    '''Helper to draw the voxel to mapping, for debug purposes
+
+    >>> for region in config.regions:
+    >>>     fig, ax = get_fig()
+    >>>     display.draw_voxel_to_flat_mapping(ax, config, regions, mapper)
+    >>>     ax.set_title(region)
+    >>>     fig.savefig(os.path.join(output, region + '.png'))
+    '''
+    plot_allen_coloured_flat_map(ax, config, regions='all', only_right=False)
+
+    for region in regions:
+        ids = list(config.flat_map.hierarchy.collect('acronym', region, 'id'))
+        mask = np.isin(config.flat_map.brain_regions.raw, ids)
+        idx = np.array(np.nonzero(mask)).T
+        uvs, _ = mapper.voxel_to_flat(idx, np.array([[0, 0, 0]]))
+
+        ax.scatter(uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=5, alpha=alpha, color=color)

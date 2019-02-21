@@ -330,6 +330,13 @@ def _voxel2flat(flat_map, regions, path_fits, locs):
 
 
 def _create_voxcell_from_xy(locations, flat_map, flat_xy):
+    '''
+    Args:
+        locations(array(Nx3)): locations
+        flat_map(FlatMap): regions
+        flat_xy(np.array(Nx3): containing coordinates in flat_map space
+        of locations
+    '''
     nz = np.count_nonzero(flat_xy) // 2
     if len(locations) > nz:
         L.debug('did not find values for %d of %d voxels (%0.2f percent)',
@@ -343,13 +350,51 @@ def _create_voxcell_from_xy(locations, flat_map, flat_xy):
     return ret
 
 
-def get_voxel_to_flat_mapping(config, n_jobs=-2, chunks=None):
+def _backfill_voxel_to_flat_mapping(voxel_mapping, flat_map, wanted_ids):
+    '''inplace filling of missing values
+
+    these voxels weren't intersected by any of the fit lines; just average the position
+    in the flat view of the neighbors to the voxel
+    '''
+    shape = flat_map.view_lookup.shape
+    center_line_idx = flat_map.center_line_3d // flat_map.brain_regions.voxel_dimensions[Z]
+
+    for ids in wanted_ids.values():
+        ids = list(ids)
+        mask = np.isin(flat_map.brain_regions.raw, ids)
+        idx = np.nonzero(mask)
+        missing = np.nonzero(voxel_mapping.raw[idx] <= 0)
+        idx = np.array(idx).T
+        for row in missing[0]:
+            miss = tuple(idx[row, :])
+            neighbors = NEIGHBORS + miss
+
+            neighbor_values = voxel_mapping.raw[tuple(neighbors.T)]
+            neighbor_values = neighbor_values[np.nonzero(neighbor_values)]
+            neighbor_values = np.array(np.unravel_index(neighbor_values, shape)).T
+
+            if miss[Z] <= center_line_idx:  # 'left'
+                mask = neighbor_values[cY] <= flat_map.center_line_2d
+            else:
+                mask = neighbor_values[cY] > flat_map.center_line_2d
+
+            neighbor_values = neighbor_values[mask]
+
+            if not len(neighbor_values):
+                continue
+
+            flat_xy = np.mean(neighbor_values, axis=0).astype(int)
+
+            voxel_mapping.raw[miss] = np.ravel_multi_index(tuple(flat_xy.T), shape)
+
+
+def get_voxel_to_flat_mapping(config, backfill=True, n_jobs=-2, chunks=None):
     '''get the full voxel to flat mapping of regions in config.regions'''
     flat_map = config.flat_map
 
-    ids = {region: flat_map.hierarchy.collect('acronym', region, 'id')
-           for region in config.regions}
-    ids = list(reduce(operator.or_, ids.values()))
+    wanted_ids = {region: flat_map.hierarchy.collect('acronym', region, 'id')
+                  for region in config.regions}
+    ids = list(reduce(operator.or_, wanted_ids.values()))
 
     path_fits = _fit_paths(flat_map)
 
@@ -371,5 +416,9 @@ def get_voxel_to_flat_mapping(config, n_jobs=-2, chunks=None):
                 for locs in np.array_split(locations, chunks, axis=0))
 
     flat_xy = np.vstack(flat_xy)
-    ret = _create_voxcell_from_xy(locations, flat_map, flat_xy)
-    return ret
+    voxel_mapping = _create_voxcell_from_xy(locations, flat_map, flat_xy)
+
+    if backfill:
+        _backfill_voxel_to_flat_mapping(voxel_mapping, flat_map, wanted_ids)
+
+    return voxel_mapping
