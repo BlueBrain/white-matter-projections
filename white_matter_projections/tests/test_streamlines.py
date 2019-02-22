@@ -11,6 +11,9 @@ from pandas.testing import assert_frame_equal
 from white_matter_projections import macro
 
 RECIPE = macro.MacroConnections.load_recipe(utils.RECIPE_TXT, utils.HIER)
+EMPTY_CONNECTED_CENTROIDS = pd.DataFrame(columns=['start_x', 'start_y', 'start_z',
+                                                  'end_x', 'end_y', 'end_z',
+                                                  'source_side', 'source_region', 'target_region'])
 
 
 def test_get_region_centroid():
@@ -22,7 +25,7 @@ def test_get_region_centroid():
 
 def test_get_all_region_centroids():
     flat_map = utils.fake_flat_map()
-    ret = sl.get_all_region_centroids(flat_map, regions=['two'])
+    ret = sl.get_all_region_centroids(flat_map, regions=['two'], layer='')
     eq_(len(ret), 1)
     eq_(list(ret.loc['two', 'right']), [1, 2, 0])
 
@@ -92,9 +95,11 @@ def test_download_streamline():
 
 
 def test_download_streamlines():
-    columns = ['source_region', 'target_region', 'target_x', 'target_y', 'target_z']
-    centroids = pd.DataFrame([('FRP', 'FRP', 25, 125, 5),
-                              ('FRP', 'MOs', 125, 25, 6)
+    columns = ['source_region', 'target_region',
+               'source_x', 'source_y', 'source_z',
+               'target_x', 'target_y', 'target_z', ]
+    centroids = pd.DataFrame([('FRP', 'FRP', 0, 0, 0, 25, 125, 5),
+                              ('FRP', 'MOs', 0, 0, 0, 125, 25, 6),
                               ],
                              columns=columns)
 
@@ -105,7 +110,7 @@ def test_download_streamlines():
             missing = sl.download_streamlines(centroids, utils.HIER, tmp, sleep_time=.1)
 
             eq_(mock_download.call_count, 2)
-            eq_(missing, [('FRP', 'MOs', 125, 25, 6)])
+            eq_(tuple(missing.iloc[0]), ('FRP', 'MOs', 0, 0, 0, 125, 25, 6))
 
             path = os.path.join(tmp, '_'.join(('FRP', 'FRP', '25', '125', '5')) + '.csv')
             with open(path) as fd:
@@ -156,7 +161,8 @@ def test__convert_csv():
 def test_convert_csvs():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
     csv_paths = [csv_path, csv_path]
-    metadata, streamlines = sl.convert_csvs(csv_paths, center_line_3d=5700, create_mirrors=False)
+    metadata, streamlines = sl.convert_csvs(csv_paths, EMPTY_CONNECTED_CENTROIDS,
+                                            center_line_3d=5700, create_mirrors=False)
 
     eq_(len(metadata), 4)
     eq_(len(streamlines), 4)
@@ -165,7 +171,8 @@ def test_convert_csvs():
 
 def test__mirror_streamlines():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
-    metadata, streamlines = sl.convert_csvs([csv_path, ], center_line_3d=5700, create_mirrors=False)
+    metadata, streamlines = sl.convert_csvs([csv_path, ], EMPTY_CONNECTED_CENTROIDS,
+                                            center_line_3d=5700, create_mirrors=False)
     metadata, streamlines = sl._mirror_streamlines(metadata, streamlines, center_line_3d=5700)
 
     eq_(len(streamlines), 2)
@@ -181,7 +188,8 @@ def test__mirror_streamlines():
 
 def test_load_save():
     csv_path = os.path.join(utils.DATADIR, 'VISrl_VISpor_9500_2700_9800.csv')
-    metadata, streamlines = sl.convert_csvs([csv_path, ], center_line_3d=5700, create_mirrors=True)
+    metadata, streamlines = sl.convert_csvs([csv_path, ], EMPTY_CONNECTED_CENTROIDS,
+                                            center_line_3d=5700, create_mirrors=True)
 
     with utils.tempdir('test_load_save_streamlines') as tmp:
         sl.save(tmp, metadata, streamlines)

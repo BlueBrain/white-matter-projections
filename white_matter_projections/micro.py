@@ -231,23 +231,35 @@ def _ptype_to_counts(cell_count, ptype, interactions):
     return total_counts, overlap_counts
 
 
+def _append_side_to_regions(regions):
+    '''due to hemisphere not being encoded in atlas, MVD had hemisphere appended
+
+    # XXX: NCX-176 hack
+    '''
+    ret = []
+    for region in regions:
+        ret.append(region + '@left')
+        ret.append(region + '@right')
+    return ret
+
+
 def get_gids_by_population(populations, get_cells, source_population):
     '''for a `population`, get all the gids from `cells` that are in that population'''
     population = populations.set_index('population').loc[source_population]
 
     if isinstance(population, pd.DataFrame):
-        region_names = set(population.subregion)
-        layers = list(population.layer)
+        region_names = set(population.region)
+        layers = set(population.layer)
         population_filter = population.population_filter[0]
     else:
-        region_names = set([population.subregion])
-        layers = [population.layer]
+        region_names = {population.region}
+        layers = {population.layer}
         population_filter = population.population_filter
 
     layers = [int(l[1]) for l in layers]
 
     cells = get_cells(population_filter)
-    region_names = region_names  # trick pylint so variable can be used in query
+    region_names = _append_side_to_regions(region_names)
     gids = cells.query('region in @region_names and layer in @layers').index.values
     return gids
 
@@ -469,13 +481,11 @@ def _calculate_delay(src_cells, syns, streamline_metadata, conduction_velocity):
     metadata = streamline_metadata.set_index('path_row')
     src_cells = src_cells[utils.XYZ]
 
-    path_rows = (metadata .index .values)
+    path_rows = metadata.index.values
 
     path_rows = np.random.choice(path_rows, size=len(syns))
     gid2row = np.vstack((syns.sgid.values, path_rows.astype(np.int64))).T
-    # TODO: tradeoff between memory...this takes 3x longer than the rest of the function
-    # for now, try going fast
-    # gid2row = np.unique(gid2row, axis=0)
+    gid2row = np.unique(gid2row, axis=0)
 
     metadata = metadata.loc[path_rows, NEEDED_COLS]
     src_start = metadata[START_COLS].values

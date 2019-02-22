@@ -1,4 +1,7 @@
 '''utils'''
+import collections
+import hashlib
+import json
 import os
 
 import itertools as it
@@ -26,8 +29,9 @@ L = logging.getLogger(__name__)
 X, Y, Z = 0, 1, 2
 cX, cY, cZ, cXYZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z], np.s_[:, :3]
 XYZ = list('xyz')
+SIDES = ('left', 'right')
 HEMISPHERE = CategoricalDtype(categories=['ipsi', 'contra'], ordered=True)
-SIDE = CategoricalDtype(categories=['left', 'right'], ordered=True)
+SIDE = CategoricalDtype(categories=SIDES, ordered=True)
 
 
 class Config(object):
@@ -38,7 +42,7 @@ class Config(object):
 
     def __init__(self, config_path):
         assert os.path.exists(config_path), 'config path %s does not exist' % config_path
-        self.config_path = config_path
+        self.config_path = os.path.abspath(config_path)
 
     @lazy
     def config(self):
@@ -101,8 +105,23 @@ class Config(object):
 
     @lazy
     def region_layer_heights(self):
-        '''converted dictionary in config to DataFrame'''
-        return region_layer_heights(self.config['region_layer_heights'])
+        '''calculate and cache layer heights from atlas to DataFrame'''
+
+        m = hashlib.sha256()
+        m.update(self.config['atlas_url'])
+        hexdigest = m.hexdigest()
+
+        path = os.path.join(self.cache_dir, 'region_layer_heights_%s.json' % hexdigest)
+        if os.path.exists(path):
+            with open(path) as fd:
+                layer_heights = json.load(fd)
+        else:
+            layer_heights = calculate_region_layer_heights(
+                self.atlas, self.hierarchy, self.regions)
+            with open(path, 'w') as fd:
+                json.dump(layer_heights, fd)
+
+        return region_layer_heights(layer_heights)
 
     @lazy
     def flat_map(self):
@@ -157,7 +176,30 @@ class Config(object):
         return path
 
 
-def region_layer_heights(layer_heights, columns=('l1', 'l2', 'l3', 'l4', 'l5', 'l6')):
+def calculate_region_layer_heights(atlas, hierarchy, regions):
+    '''find region layer heights for layers 1 - 6'''
+    brain_regions = atlas.load_data('brain_regions')
+
+    phs = [atlas.load_data('[PH]%d' % layer) for layer in range(1, 7)]
+
+    thicknesses = collections.defaultdict(dict)
+    for region in regions:
+        ids = list(hierarchy.collect('acronym', region, 'id'))
+        mask = np.isin(brain_regions.raw, list(ids))
+        for layer in range(1, 7):
+            ph = phs[layer - 1].raw[mask]
+            thicknesses[region]['l%s' % layer] = np.mean(ph[:, 1] - ph[:, 0])
+
+        # split l6 -> l6a & l6b; each half as thick
+        thicknesses[region]['l6a'] = thicknesses[region]['l6b'] = thicknesses[region]['l6'] / 2.
+        del thicknesses[region]['l6']
+
+    thicknesses = dict(thicknesses)
+
+    return thicknesses
+
+
+def region_layer_heights(layer_heights, columns=('l1', 'l2', 'l3', 'l4', 'l5', 'l6a', 'l6b', )):
     '''convert layer heights dictionary to pandas DataFrame'''
     return pd.DataFrame.from_dict(layer_heights, orient='index', columns=columns)
 
@@ -228,7 +270,10 @@ def get_region_layer_to_id(hier, region, layers):
 def ensure_path(path):
     '''make sure path exists'''
     if not os.path.exists(path):
-        os.makedirs(path)
+        try:
+            os.makedirs(path)
+        except OSError:
+            pass
     return path
 
 

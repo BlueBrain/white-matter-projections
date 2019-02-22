@@ -15,59 +15,62 @@ class TestConfig(object):
     def __init__(self):
         self.config = test_utils.get_config()
 
-    def test_types(self):
-        types = (('region_layer_heights', pd.DataFrame),
-                 ('hierarchy', voxcell.hierarchy.Hierarchy),
-                 ('atlas', voxelbrain.Atlas),
-                 ('recipe', macro.MacroConnections),
-                 ('regions', list),
-                 #('circuit', Circuit),  # need a valid circuit
-                 ('config', dict),
-                 ('config_path', str),
-                 #('flat_map', flat_mapping.FlatMap),  # hits AIBS API, reduce load
-                 )
+    #{ slow - pulls data from internet
+    #def test_types(self):
+    #    types = (('region_layer_heights', pd.DataFrame),
+    #             ('hierarchy', voxcell.hierarchy.Hierarchy),
+    #             ('atlas', voxelbrain.Atlas),
+    #             ('recipe', macro.MacroConnections),
+    #             ('regions', list),
+    #             #('circuit', Circuit),  # need a valid circuit
+    #             ('config', dict),
+    #             ('config_path', str),
+    #             #('flat_map', flat_mapping.FlatMap),  # hits AIBS API, reduce load
+    #             )
 
-        for attr_, type_ in types:
-            ok_(isinstance(getattr(self.config, attr_), type_))
+    #    for attr_, type_ in types:
+    #        ok_(isinstance(getattr(self.config, attr_), type_))
 
-        #ok_(isinstance(self.config.voxel_to_flat(), voxcell.VoxelData))  # too slow
-        #ok_(isinstance(self.config.get_cells()), pd.DataFrame)  # need a valid circuit
+    #    #ok_(isinstance(self.config.voxel_to_flat(), voxcell.VoxelData))  # too slow
+    #    #ok_(isinstance(self.config.get_cells()), pd.DataFrame)  # need a valid circuit
 
-    def test_region_layer_heights(self):
-        ret = self.config.region_layer_heights
-        eq_(ret.loc['FRP'].sum(), 6 * 100)
-        eq_(ret.loc['FRP']['l6'], 100)
-        eq_(tuple(ret.loc['MOs']), tuple(ret.loc['ACAd']))
+    #def test_region_layer_heights(self):
+    #    ret = self.config.region_layer_heights
+    #    eq_(ret.loc['FRP'].sum(), 6 * 100)
+    #    eq_(ret.loc['FRP']['l6'], 100)
+    #    eq_(tuple(ret.loc['MOs']), tuple(ret.loc['ACAd']))
+    #} slow
 
     def test__relative_to_config(self):
         assert_raises(Exception, utils.Config._relative_to_config, 'asdfasdfas', 'asdfasdfas')
 
 
-def test_normalize_layer_profiles():
-    config_path = os.path.join(test_utils.DATADIR, 'config.yaml')
-    layer_heights = utils.Config(config_path).region_layer_heights
-    profiles = pd.DataFrame([['profile_1', 'l1', 5.],
-                             ['profile_1', 'l2', 4.],
-                             ['profile_1', 'l4', 4.],
-                             ['profile_1', 'l5', 2.],
-                             ['profile_1', 'l6', 1.],
-                             ['profile_1', 'l3', 0.5],
-                             ['profile_2', 'l1', 0.],
-                             ['profile_2', 'l2', 1.],
-                             ['profile_2', 'l4', 2.],
-                             ['profile_2', 'l5', 3.],
-                             ['profile_2', 'l6', 4.],
-                             ['profile_2', 'l3', 5.],
-                             ],
-                            columns=['name', 'layer', 'relative_density']
-                            )
-
-    ret = utils.normalize_layer_profiles(layer_heights, profiles)
-    eq_(tuple(ret.loc['MOs']), tuple(ret.loc['ACAd']))
-    w = [100, 100, 100, 100, 100, 100]
-    eq_(ret.loc['FRP']['profile_1'],
-        sum(w) / sum(w_ * p for w_, p in zip(w, [5., 4., 4.,  2., 1., 0.5])))
-
+#{ slow - pulls data from internet
+#def test_normalize_layer_profiles():
+#    config_path = os.path.join(test_utils.DATADIR, 'config.yaml')
+#    layer_heights = utils.Config(config_path).region_layer_heights
+#    profiles = pd.DataFrame([['profile_1', 'l1', 5.],
+#                             ['profile_1', 'l2', 4.],
+#                             ['profile_1', 'l4', 4.],
+#                             ['profile_1', 'l5', 2.],
+#                             ['profile_1', 'l6', 1.],
+#                             ['profile_1', 'l3', 0.5],
+#                             ['profile_2', 'l1', 0.],
+#                             ['profile_2', 'l2', 1.],
+#                             ['profile_2', 'l4', 2.],
+#                             ['profile_2', 'l5', 3.],
+#                             ['profile_2', 'l6', 4.],
+#                             ['profile_2', 'l3', 5.],
+#                             ],
+#                            columns=['name', 'layer', 'relative_density']
+#                            )
+#
+#    ret = utils.normalize_layer_profiles(layer_heights, profiles)
+#    eq_(tuple(ret.loc['MOs']), tuple(ret.loc['ACAd']))
+#    w = [100, 100, 100, 100, 100, 100]
+#    eq_(ret.loc['FRP']['profile_1'],
+#        sum(w) / sum(w_ * p for w_, p in zip(w, [5., 4., 4.,  2., 1., 0.5])))
+#}
 
 def test_perform_module_grouping():
     module_grouping = (('Group0', ('Region0', 'Region2', 'Region4', )),

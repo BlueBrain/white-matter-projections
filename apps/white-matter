@@ -253,18 +253,18 @@ def download_streamlines(ctx):
     from white_matter_projections import streamlines
     config, output = ctx.obj['config'], ctx.obj['output']
 
+    centroids = streamlines.get_connected_centroids(config.flat_map, config.recipe)
     streamline_csvs = os.path.join(output, 'streamlines')
     if not os.path.exists(streamline_csvs):
         L.info('Downlading streamlines to %s', streamline_csvs)
         utils.ensure_path(streamline_csvs)
-        centroids = streamlines.get_connected_centroids(config.flat_map, config.recipe)
         missing = streamlines.download_streamlines(centroids, config.hierarchy, streamline_csvs)
-        if missing:
+
+        if len(missing):
             L.info('Missing streamlines: %s', missing)
 
     csv_paths = glob(os.path.join(streamline_csvs, '*.csv'))
-    metadata, paths = streamlines.convert_csvs(
-        csv_paths, center_line_3d=config.flat_map.center_line_3d)
+    metadata, paths = streamlines.convert_csvs(csv_paths, centroids, config.flat_map.center_line_3d)
     streamlines.save(output, metadata, paths)
 
 
@@ -305,17 +305,18 @@ def sample_all(ctx, target_population):
 
 @micro.command()
 @click.option('-p', '--population', 'target_population', required=True)
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
-def subsample(ctx, target_population):
+def subsample(ctx, target_population, side):
     from white_matter_projections import sampling
     config, output = ctx.obj['config'], ctx.obj['output']
 
-    sampling.subsample_per_target(output, config, target_population)
+    sampling.subsample_per_target(output, config, target_population, side)
 
 
 @micro.command()
 @click.option('-p', '--population', 'target_population', required=True)
-@click.option('-s', '--side', type=click.Choice(['left', 'right']), default='right')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
 def assignment(ctx, target_population, side):
     from white_matter_projections import micro, mapping, sampling
@@ -339,7 +340,7 @@ def assignment(ctx, target_population, side):
 
 @micro.command()
 @click.option('-p', '--population', 'target_population', required=True)
-@click.option('-s', '--side', type=click.Choice(('left', 'right')), default='right')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
 def concat_assignments(ctx, target_population, side):
     config, output = ctx.obj['config'], ctx.obj['output']
@@ -353,14 +354,14 @@ def concat_assignments(ctx, target_population, side):
     else:
         target_populations = (target_population, )
 
-    base_path = os.path.join(output, micro.ALLOCATED_PATH, side)
+    base_path = os.path.join(output, micro.ASSIGNMENT_PATH, side)
     for target_population in target_populations:
         output_path = os.path.join(output, '%s_%s_proj_nrn.feather' % (target_population, side))
         if os.path.exists(output_path):
             L.warning('Already have %s, delete it if it needs to be recreated', output_path)
             continue
 
-        L.info('Doing target_population: %s', target_population)
+        L.info('Concat target_population: %s', target_population)
         projection_names = projections.query('target_population == @target_population')
         syns, missing = [], []
         for name, synapse_type in projection_names[['projection_name', 'synapse_type_name']].values:
@@ -376,7 +377,7 @@ def concat_assignments(ctx, target_population, side):
         L.debug('Missing feathers for %s', missing)
 
         L.debug('Concat %d frames', len(syns))
-        syns = pd.concat(syns)
+        syns = pd.concat(syns, ignore_index=True, sort=False)
 
         syns['sgid'] = pd.to_numeric(syns['sgid'], downcast='unsigned')
 
@@ -399,14 +400,18 @@ def analysis(ctx, config, output):
 
 
 @analysis.command()
+@click.option('-p', '--population', 'source_population', required=False, default=None)
 @click.pass_context
-def source_locations(ctx):
+def source_locations(ctx, source_population):
     '''Plot the source locations, after allocation, but before used'''
     from white_matter_projections import display, micro, mapping
     config, output = ctx.obj['config'], ctx.obj['output']
 
     allocations_path = os.path.join(output, 'allocations.h5')
     allocations = micro.load_allocations(allocations_path, config.recipe.projections_mapping)
+
+    if source_population:
+        allocations = allocations.query('source_population == @source_population')
 
     sgids = np.hstack(allocations.sgids.values).ravel()
     src_cells = config.get_cells()
@@ -423,7 +428,7 @@ def source_locations(ctx):
 
 @analysis.command()
 @click.option('-p', '--population', 'target_population', required=True)
-@click.option('-s', '--side', type=click.Choice(['left', 'right']), default='right')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
 def used_locations(ctx, target_population, side):
     '''Plot the source locations for particular target region, but only ones used'''
@@ -433,12 +438,12 @@ def used_locations(ctx, target_population, side):
     files = glob(os.path.join(output, micro.ASSIGNMENT_PATH, side, '*.feather'))
 
     sgids = [utils.read_frame(f, columns=['sgid']) for f in files]
-    sgids = pd.concat(sgids)
+    sgids = pd.concat(sgids, ignore_index=True, sort=False)
 
     src_cells = config.get_cells()
     mapper = mapping.CommonMapper.load_default(config)
 
-    name = 'used_src_positions_%s_%s.png' % (target_population, side)
+    name = os.path.join(output, 'used_src_positions_%s_%s.png' % (target_population, side))
     with ctx.obj['figure'](name) as fig:
         ax = fig.gca()
         ax.set_aspect('equal')
@@ -454,7 +459,7 @@ def used_locations(ctx, target_population, side):
 
 @analysis.command()
 @click.option('-n', '--name', 'projection_name')
-@click.option('-s', '--side', type=click.Choice(['left', 'right']), default='right')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
 def projection(ctx, projection_name, side):
     from white_matter_projections import display, micro, mapping
@@ -490,7 +495,7 @@ def projection(ctx, projection_name, side):
 
 
 @analysis.command()
-@click.option('-p', '--population', required=True, default='ACAd_6')
+@click.option('-p', '--population', required=True)
 @click.pass_context
 def allocation_stats(ctx, population):
     '''Based on the allocations created by 'micro allocate', display stats'''

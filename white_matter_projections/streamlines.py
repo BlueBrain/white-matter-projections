@@ -51,11 +51,11 @@ def get_region_centroid(flat_map, region, side):
     return ret
 
 
-def get_all_region_centroids(flat_map, regions):
-    '''get *all* centroids of regions used'''
+def get_all_region_centroids(flat_map, regions, layer='6b'):
+    '''get *all* centroids of regions used, default to layer 6b'''
     ret = []
     for region, side in it.product(regions, ('left', 'right')):
-        centroid = get_region_centroid(flat_map, region, side)
+        centroid = get_region_centroid(flat_map, region + layer, side)
         if centroid is not None:
             ret.append((region, side) + tuple(centroid))
 
@@ -88,15 +88,13 @@ def get_connected_regions(recipe):
 
 def get_connected_centroids(flat_map, recipe):
     '''for all used projections in the recipe, find the centroids'''
-    sides = ('left', 'right')
-
     regions = get_connected_regions(recipe)
     needed_regions = set(regions.source_region) | set(regions.target_region)
     centroids = get_all_region_centroids(flat_map, needed_regions)
 
     ret = []
     for source_region, target_region in regions[['source_region', 'target_region']].values:
-        for source_side, target_side in it.product(sides, sides):
+        for source_side, target_side in it.product(utils.SIDES, utils.SIDES):
             ret.append((source_region, target_region, source_side, target_side))
 
     columns = ['source_region', 'target_region', 'source_side', 'target_side']
@@ -104,6 +102,9 @@ def get_connected_centroids(flat_map, recipe):
 
     ret = ret.join(centroids, on=('target_region', 'target_side'))
     ret.rename({ax: 'target_' + ax for ax in list('xyz')}, axis='columns', inplace=True)
+
+    ret = ret.join(centroids, on=('source_region', 'source_side'))
+    ret.rename({ax: 'source_' + ax for ax in list('xyz')}, axis='columns', inplace=True)
 
     return ret
 
@@ -198,11 +199,13 @@ def download_streamlines(centroids, hierarchy, output_path, sleep_time=0.5):
     missing = sl.download_streamlines(centroids, hierarchy, output_path='streamlines')
     '''
     missing = []
-    columns = ['source_region', 'target_region', 'target_x', 'target_y', 'target_z']
+    columns = ['source_region', 'target_region',
+               'source_x', 'source_y', 'source_z',
+               'target_x', 'target_y', 'target_z', ]
     # Note: spatial query doesn't specify which hemisphere, afaik, so only do one query
-    for keys in centroids[columns].values:
+    for keys in centroids[columns].drop_duplicates().values:
         source_region, target_region = keys[:2]
-        seed = keys[2:]  # seeds are from the target regions
+        seed = keys[-3:]  # seeds are from the target regions
 
         # Note: expect SOURCENAME_TARGETNAME_.... for get_source_target_from_path
         name = '{source_region}_{target_region}_{seed_x}_{seed_y}_{seed_z}.csv'.format(
@@ -225,8 +228,9 @@ def download_streamlines(centroids, hierarchy, output_path, sleep_time=0.5):
                 fd.write(text)
             L.debug('Wrote: %s', path)
         else:
-            missing.append((source_region, target_region, seed[X], seed[Y], seed[Z]))
+            missing.append(keys)
 
+    missing = pd.DataFrame(missing, columns=columns)
     return missing
 
 
@@ -276,7 +280,7 @@ def _correct_metadata_dtypes(metadata):
 
     # integers
     for name in ('region_id', 'path_row', ):
-        metadata[name] = pd.to_numeric(metadata[name], downcast='unsigned')
+        metadata[name] = pd.to_numeric(metadata[name], downcast='signed')
 
 
 def _convert_csv(csv_path):
@@ -325,10 +329,38 @@ def _assign_side_and_hemisphere(metadata, center_line_3d):
     metadata['hemisphere'] = pd.Categorical.from_codes(contras, dtype=utils.HEMISPHERE)
 
 
-def convert_csvs(csv_paths, center_line_3d, create_mirrors=True):
-    '''convert and '''
+def _create_missing(metadata, connected_centroids, center_line_3d):
+    '''add centroids direct connections for centroids in connected_centroids but not in metadata'''
+    centroids = connected_centroids.rename({'target_region': 'target', 'source_region': 'source'},
+                                           axis='columns')
+    centroids.rename({'source_' + ax: 'start_' + ax for ax in list('xyz')}, axis='columns',
+                     inplace=True)
+    centroids.rename({'target_' + ax: 'end_' + ax for ax in list('xyz')}, axis='columns',
+                     inplace=True)
+    centroids['length'] = np.linalg.norm(centroids[['start_x', 'start_y', 'start_z']].values -
+                                         centroids[['end_x', 'end_y', 'end_z']].values,
+                                         axis=1)
+    centroids['path_row'] = -1
+    del centroids['source_side']
+
+    _assign_side_and_hemisphere(centroids, center_line_3d)
+
+    # remove any that already exist; want to use streamlines when they are available
+    keys = ['source', 'target', 'target_side', 'hemisphere']
+    metadata = metadata[keys].drop_duplicates()
+    keep = centroids.merge(metadata, how='left', on=keys, indicator='merged')
+    keep = (keep['merged'].values == 'left_only')
+
+    return centroids[keep]
+
+
+def convert_csvs(csv_paths, connected_centroids, center_line_3d, create_mirrors=True):
+    '''convert and fill in missing streamlines'''
     metadata, streamlines = [], []
     for csv_path in csv_paths:
+        if csv_path.endswith('missing_streamlines.csv'):
+            continue
+
         metadata_, paths_ = _convert_csv(csv_path)
 
         metadata.append(metadata_)
@@ -339,9 +371,12 @@ def convert_csvs(csv_paths, center_line_3d, create_mirrors=True):
             metadata.append(metadata_)
             streamlines.extend(paths_)
 
-    metadata = pd.concat(metadata).reset_index(drop=True)
+    metadata = pd.concat(metadata, ignore_index=True, sort=False)
     metadata['path_row'] = np.arange(len(streamlines), dtype=int)
     _assign_side_and_hemisphere(metadata, center_line_3d)
+
+    missing = _create_missing(metadata, connected_centroids, center_line_3d)
+    metadata = pd.concat((metadata, missing), ignore_index=True, sort=False)
 
     # remove ipsi connections w/ same source and target - those are local
     # connectivity, not white-matter

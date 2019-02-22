@@ -1,4 +1,6 @@
 '''sampling of the circuit morphologies to create potential synapses based on segments'''
+import collections
+import itertools as it
 import os
 import logging
 from glob import glob
@@ -79,7 +81,7 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
         chunks.append(df)
 
     if len(chunks):
-        df = pd.concat(chunks).reset_index(drop=True)
+        df = pd.concat(chunks, ignore_index=True, sort=False)
     else:
         df = pd.DataFrame(columns=SEGMENT_COLUMNS)
     return df
@@ -107,7 +109,7 @@ def _full_sample_parallel(brain_regions, region_id, index_path, n_jobs=-2, chunk
     p = Parallel(n_jobs=n_jobs)
     df = p(worker(xyzs, index_path, brain_regions.voxel_dimensions)
            for xyzs in np.array_split(positions, chunks, axis=0))
-    df = pd.concat(df).reset_index(drop=True)
+    df = pd.concat(df, ignore_index=True, sort=False)
     return df
 
 
@@ -121,56 +123,55 @@ def sample_all(output, index_base, population, brain_regions):
         brain_regions(voxcell.VoxelData): tagged regions
 
     Output:
-        Feather files written to output/$SAMPLE_PATH/$population_$layer.feather
+        Feather files written to output/$SAMPLE_PATH/$population_$layer_$side.feather
         containing all the sample segments
     '''
     output = os.path.join(output, SAMPLE_PATH)
     utils.ensure_path(output)
 
-    for id_, region, layer in population[['id', 'region', 'layer']].values:
-        path = os.path.join(output, '%s_%s.feather' % (region, layer))
+    populations = population[['id', 'region', 'layer']].values
+    for (id_, region, layer), side in it.product(populations, utils.SIDES):
+        # if format changes, need to change in: load_all_samples
+        path = os.path.join(output, '%s_%s_%s.feather' % (region, layer, side))
         if os.path.exists(path):
-            L.debug('Already sampled %s[%s] (%s), skipping', region, layer, path)
+            L.debug('Already sampled %s@%s[%s] (%s), skipping', region, side, layer, path)
             continue
 
-        L.debug('Sampling %s[%s] -> %s', region, layer, path)
+        L.debug('Sampling %s[%s@%s] -> %s', region, layer, side, path)
 
-        index_path = os.path.join(index_base, region)
+        index_path = os.path.join(index_base, region + '@' + side)
+        if not os.path.exists(index_path):
+            L.warning('Index %s is missing, skipping: %s[%s@%s]',
+                      index_path, region, layer, side)
+            continue
+
         df = _full_sample_parallel(brain_regions, id_, index_path)
         if df is not None:
             utils.write_frame(path, df)
 
 
-def _load_sample_all_worker(sample_path, center_line_3d):
-    '''read `sample_path`, split into left and right based on `center_line_3d`'''
-    syns = utils.read_frame(sample_path)
-
-    midpoints = 0.5 * (syns['segment_z1'] + syns['segment_z2'])
-    syns_left = syns[midpoints <= center_line_3d].copy()
-    syns_right = syns[midpoints > center_line_3d].copy()
-
-    return {'left': syns_left.reset_index(drop=True),
-            'right': syns_right.reset_index(drop=True),
-            }
-
-
-def load_all_samples(path, region_tgt, center_line_3d):
+def load_all_samples(path, region_tgt):
     '''load samples for `region_tgt` from `path`, in parallel, separating into left/right'''
-    worker = delayed(_load_sample_all_worker)
     files = glob(os.path.join(path, SAMPLE_PATH, '%s_*.feather' % region_tgt))
-
-    work, layers = [], []
+    work = []
+    # format is: '%s_%s_%s.feather' % (region, layer, side))
     for file_ in files:
-        work.append(worker(file_, center_line_3d))
-        layers.append(os.path.basename(file_).split('_')[-1][:-8])
+        assert len(os.path.basename(file_).split('_')) == 3
+        work.append(delayed(utils.read_frame)(file_))
 
     # reduce data serialization by only using threading ~6m -> 1.3m for VISp
     kwargs = {'n_jobs': len(work),
               'backend': 'threading',
               }
     work = Parallel(**kwargs)(work)
-    ret = dict(zip(layers, work))
-    return ret
+
+    ret = collections.defaultdict(dict)
+    for file_, segments in zip(files, work):
+        file_ = os.path.basename(file_).split('_')
+        layer, side = file_[1], file_[2][:-8]
+
+        ret[layer][side] = segments
+    return dict(ret)
 
 
 def _add_random_position_and_offset_worker(segments, output, sl):
@@ -281,7 +282,7 @@ def calculate_constrained_volume(config, brain_regions, region_id, vertices):
 
 
 def _subsample_per_source(config, target_vertices,
-                          projection_name, densities, hemisphere,
+                          projection_name, densities, hemisphere, side,
                           segment_samples, output):
     '''Given all region's `segment_samples`, pick segments that satisfy the
     desired density in constrained by `vertices`
@@ -293,6 +294,7 @@ def _subsample_per_source(config, target_vertices,
         projection_name(str): name of projection
         densities(DataFrame): with columns 'layer_tgt', 'id_tgt', 'density'
         hemisphere(str): either 'ipsi' or 'contra'
+        side(str): either 'left' or 'right'
         segment_samples(dict of 'left'/'right'): full sample of regions's segments
         output(path): where to output files
     '''
@@ -301,48 +303,48 @@ def _subsample_per_source(config, target_vertices,
     center_line = config.flat_map.center_line_2d
     brain_regions = config.atlas.load_data('brain_regions')
 
-    for side in ('left', 'right'):
-        base_path = os.path.join(output, SAMPLE_PATH, side)
-        utils.ensure_path(base_path)
-        path = os.path.join(base_path, projection_name + '.feather')
-        if os.path.exists(path):
-            L.debug('Already did: %s', path)
-            continue
+    base_path = os.path.join(output, SAMPLE_PATH, side)
+    utils.ensure_path(base_path)
+    path = os.path.join(base_path, projection_name + '.feather')
+    if os.path.exists(path):
+        L.info('Already subsampled: %s', path)
+        return
 
-        L.debug('Doing %s[%s]', projection_name, side)
-        mirrored_vertices = target_vertices.copy()
-        if utils.is_mirror(side, hemisphere):
-            mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
+    L.debug('Subsampling for %s[%s]', projection_name, side)
+    mirrored_vertices = target_vertices.copy()
+    if utils.is_mirror(side, hemisphere):
+        mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
 
-        groupby = densities.groupby(['layer_tgt', 'id_tgt']).density.sum().iteritems()
-        all_syns = []
-        for (layer, id_tgt), density in groupby:
-            volume = calculate_constrained_volume(config, brain_regions, id_tgt, mirrored_vertices)
-            if volume <= 0.1:
-                continue
+    groupby = densities.groupby(['layer_tgt', 'id_tgt']).density.sum().iteritems()
+    all_syns = []
+    for (layer, id_tgt), density in groupby:
+        volume = calculate_constrained_volume(config, brain_regions, id_tgt, mirrored_vertices)
+        if volume <= 0.1:
+            L.info('No synapses found for: %s %s', projection_name, side)
+            return
 
-            syns = _add_random_position_and_offset(segment_samples[layer][side])
+        syns = _add_random_position_and_offset(segment_samples[layer][side])
 
-            mask = mask_xyzs_by_vertices(config.config_path,
-                                         mirrored_vertices,
-                                         syns[utils.XYZ].values)
-            syns = syns[mask]
+        mask = mask_xyzs_by_vertices(config.config_path,
+                                     mirrored_vertices,
+                                     syns[utils.XYZ].values)
+        syns = syns[mask]
 
-            picked = _pick_syns(syns, count=int(volume * density))
-            all_syns.append(syns.iloc[picked])
+        picked = _pick_syns(syns, count=int(volume * density))
+        all_syns.append(syns.iloc[picked])
 
-            del syns, picked  # drop memory usage as quickly as possible
+        del syns, picked  # drop memory usage as quickly as possible
 
-        if not len(all_syns):
-            L.debug('No synapses found for: %s %s', projection_name, side)
-            continue
+    if not len(all_syns):
+        L.info('No synapses found for: %s %s', projection_name, side)
+        return
 
-        all_syns = pd.concat(all_syns)
+    all_syns = pd.concat(all_syns, ignore_index=True, sort=False)
 
-        all_syns['section_id'] = pd.to_numeric(all_syns['section_id'], downcast='unsigned')
-        all_syns['segment_id'] = pd.to_numeric(all_syns['segment_id'], downcast='unsigned')
+    all_syns['section_id'] = pd.to_numeric(all_syns['section_id'], downcast='unsigned')
+    all_syns['segment_id'] = pd.to_numeric(all_syns['segment_id'], downcast='unsigned')
 
-        utils.write_frame(path, all_syns)
+    utils.write_frame(path, all_syns)
 
 
 def _pick_syns(syns, count):
@@ -357,7 +359,7 @@ def _pick_syns(syns, count):
     return picked
 
 
-def subsample_per_target(output, config, target_population):
+def subsample_per_target(output, config, target_population, side):
     '''Create feathers files in `output` for projections targeting `target_population`'''
     norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
                                                          config.recipe.layer_profiles)
@@ -369,7 +371,7 @@ def subsample_per_target(output, config, target_population):
 
     projections_mapping = config.recipe.projections_mapping
     region_tgt = str(densities.region_tgt.unique()[0])
-    samples = load_all_samples(output, region_tgt, config.flat_map.center_line_3d)
+    segment_samples = load_all_samples(output, region_tgt)
     gb = densities.groupby(['source_population', 'region_tgt', 'projection_name', 'hemisphere', ])
     for keys, densities in gb:
         source_population, region_tgt, projection_name, hemisphere = keys
@@ -377,5 +379,5 @@ def subsample_per_target(output, config, target_population):
         tgt_vertices = projections_mapping[source_population][projection_name]['vertices']
 
         _subsample_per_source(config, tgt_vertices,
-                              projection_name, densities, hemisphere,
-                              samples, output)
+                              projection_name, densities, hemisphere, side,
+                              segment_samples, output)

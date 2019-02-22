@@ -9,7 +9,7 @@ from joblib import parallel_backend
 from nose.tools import ok_, eq_
 from white_matter_projections import sampling, utils
 from numpy.testing import assert_allclose
-from pandas.testing import assert_frame_equal, assert_series_equal
+from pandas.testing import assert_frame_equal
 from utils import (tempdir, gte_,
                    fake_brain_regions, fake_voxel_to_flat_mapping,
                    )
@@ -75,7 +75,6 @@ def test__full_sample_parallel():
         ok_(ret is None)
 
 def test_sample_all():
-    index_base = 'fake_index_base'
     population = pd.DataFrame(
         np.array([(1, 'FRP', 'l1'),
                   (2, 'FRP', 'l2'),
@@ -88,12 +87,17 @@ def test_sample_all():
         columns=sampling.SEGMENT_COLUMNS)
 
     with tempdir('test_sample_all') as tmp:
+        index_base = os.path.join(tmp, 'fake_index_base')
+        os.makedirs(os.path.join(index_base, 'FRP@left'))
+        os.makedirs(os.path.join(index_base, 'FRP@right'))
+
         with patch('white_matter_projections.sampling._full_sample_parallel') as mock_fsp:
             mock_fsp.return_value = df
             sampling.sample_all(tmp, index_base, population, brain_regions)
             for l in ('l1', 'l2', 'l3'):
-                ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s.feather' % l)))
-            eq_(mock_fsp.call_count, 3)
+                ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s_right.feather' % l)))
+                ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s_left.feather' % l)))
+            eq_(mock_fsp.call_count, 6)
 
             mock_fsp.reset_mock()
             sampling.sample_all(tmp, index_base, population, brain_regions)
@@ -103,22 +107,23 @@ def test_sample_all():
 def test_load_all_samples():
     with tempdir('test_load_all_samples') as tmp:
         utils.ensure_path(os.path.join(tmp, sampling.SAMPLE_PATH))
-        path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_region_l1.feather')
-        df = pd.DataFrame(np.array([[0, 0., 10.],
-                                    [1, -10, 0.]]),
+        path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_l1_right.feather')
+        df_right = pd.DataFrame(np.array([[0, 0., 10.],
+                                          [1, -10, 10.]]),
                           columns=['tgid', 'segment_z1', 'segment_z2'])
-        utils.write_frame(path, df)
-        center_line_3d = 0.
+        utils.write_frame(path, df_right)
 
-        res = sampling._load_sample_all_worker(path, center_line_3d)
-        assert_series_equal(res['right'].iloc[0], df.iloc[0])
-        assert_series_equal(res['left'].iloc[0], df.iloc[1], check_names=False)
+        df_left = pd.DataFrame(np.array([[0, 0., -10.],
+                                         [1, -10, -10.]]),
+                          columns=['tgid', 'segment_z1', 'segment_z2'])
+        path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_l1_left.feather')
+        utils.write_frame(path, df_left)
 
-        region_tgt = 'Fake_region'
-        ret = sampling.load_all_samples(tmp, region_tgt, center_line_3d)
+        region_tgt = 'Fake'
+        ret = sampling.load_all_samples(tmp, region_tgt)
         eq_(ret.keys(), ['l1'])
-        assert_series_equal(ret['l1']['right'].iloc[0], df.iloc[0])
-        assert_series_equal(ret['l1']['left'].iloc[0], df.iloc[1], check_names=False)
+        assert_frame_equal(ret['l1']['right'], df_right)
+        assert_frame_equal(ret['l1']['left'], df_left, check_names=False)
 
 
 def test__add_random_position_and_offset():
@@ -247,13 +252,16 @@ def test__subsample_per_source():
                       },
                }
     projection_name = 'projection_name'
+    side = 'left'
     with tempdir('test__subsample_per_source') as output:
         with patch('white_matter_projections.sampling.mask_xyzs_by_vertices') as mask_xyzs:
             mask_xyzs.return_value = np.array([True], dtype=bool)
             np.random.seed(37)
-            sampling._subsample_per_source(config, vertices, projection_name, densities, hemisphere, samples, output)
+            sampling._subsample_per_source(config, vertices,
+                                           projection_name, densities, hemisphere, side,
+                                           samples, output)
 
-        output_path = os.path.join(output, sampling.SAMPLE_PATH, 'left', projection_name + '.feather')
+        output_path = os.path.join(output, sampling.SAMPLE_PATH, side, projection_name + '.feather')
         ok_(os.path.exists(output_path))
         res = utils.read_frame(output_path)
         eq_(len(res), 1)
