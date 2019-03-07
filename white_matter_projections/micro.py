@@ -485,7 +485,7 @@ def _calculate_delay(src_cells, syns, streamline_metadata, conduction_velocity):
 
     path_rows = np.random.choice(path_rows, size=len(syns))
     gid2row = np.vstack((syns.sgid.values, path_rows.astype(np.int64))).T
-    gid2row = np.unique(gid2row, axis=0)
+    gid2row = pd.DataFrame(gid2row, columns=['sgid', 'row']).drop_duplicates()
 
     metadata = metadata.loc[path_rows, NEEDED_COLS]
     src_start = metadata[START_COLS].values
@@ -503,8 +503,9 @@ def _calculate_delay(src_cells, syns, streamline_metadata, conduction_velocity):
     return delay.astype(np.float32), gid2row
 
 
-def assignment(output, config, allocations, projections_mapping, mapper, side, closest_count):
-    '''perform assignment'''
+def assignment(output, config, allocations, projections_mapping, mapper, side,
+               closest_count, reverse):
+    '''perform ssignment'''
     # pylint: disable=too-many-locals
     populations = config.recipe.populations
     samples_path = os.path.join(output, sampling.SAMPLE_PATH)
@@ -515,9 +516,13 @@ def assignment(output, config, allocations, projections_mapping, mapper, side, c
     streamline_metadata = streamlines.load(output, only_metadata=True)
     conduction_velocity = config.config['conduction_velocity']
 
-    columns = ['projection_name', 'source_population', 'target_population',
-               'sgids', 'hemisphere', ]
-    for keys in allocations[columns].values:
+    count = len(allocations)
+    alloc = allocations[['projection_name', 'source_population', 'target_population',
+                         'sgids', 'hemisphere', ]].values
+    if reverse:
+        alloc = reversed(alloc)
+
+    for i, keys in enumerate(alloc):
         projection_name, source_population, target_population, sgids, hemisphere = keys
 
         output_path = os.path.join(output, ASSIGNMENT_PATH, side)
@@ -527,7 +532,7 @@ def assignment(output, config, allocations, projections_mapping, mapper, side, c
             L.debug('Skipping %s, already have %s', projection_name, output_path)
             continue
 
-        L.debug('Doing %s -> %s', projection_name, output_path)
+        L.debug('Assigning %s -> %s (%s of %s)', projection_name, output_path, i, count)
 
         # src coordinates in flat space
         src_cells = separate_source_and_targets(
@@ -555,5 +560,5 @@ def assignment(output, config, allocations, projections_mapping, mapper, side, c
                                              'hemisphere == @hemisphere'
                                              )
         syns['delay'], gid2row = _calculate_delay(src_cells, syns, metadata, conduction_velocity)
-        np.savetxt(output_path + '_gid2row.npy', gid2row)
+        utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
         utils.write_frame(output_path, syns)

@@ -285,8 +285,8 @@ def test__calculate_delay():
 
     delay, gid2row = micro._calculate_delay(src_cells, syns, streamline_metadata,
                                             conduction_velocity=conduction_velocity)
-    eq_(set(gid2row[:, 1]), {3, 5})  # based on random picking
-    assert_allclose(gid2row[:, 0], syns.sgid.values)
+    eq_(list(gid2row.row), [5, 3, 5, 5,])  # based on random picking
+    assert_allclose(gid2row.sgid.values, syns.sgid.values)
     eq_(list(delay), [557., 366., 565., 584.])
 
 

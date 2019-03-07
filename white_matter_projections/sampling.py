@@ -1,6 +1,5 @@
 '''sampling of the circuit morphologies to create potential synapses based on segments'''
 import collections
-import itertools as it
 import os
 import logging
 from glob import glob
@@ -113,14 +112,15 @@ def _full_sample_parallel(brain_regions, region_id, index_path, n_jobs=-2, chunk
     return df
 
 
-def sample_all(output, index_base, population, brain_regions):
-    '''sample all segments per region & layer for a population: ie: VISam_l5
+def sample_all(output, index_base, population, brain_regions, side):
+    '''sample all segments per region and side for a population
 
     Args:
         output(str):
         index_base(str): path to segment indices base
         population(population dataframe): with only the target population
         brain_regions(voxcell.VoxelData): tagged regions
+        side(str): either 'left' or 'right'
 
     Output:
         Feather files written to output/$SAMPLE_PATH/$population_$layer_$side.feather
@@ -130,7 +130,7 @@ def sample_all(output, index_base, population, brain_regions):
     utils.ensure_path(output)
 
     populations = population[['id', 'region', 'layer']].values
-    for (id_, region, layer), side in it.product(populations, utils.SIDES):
+    for id_, region, layer in populations:
         # if format changes, need to change in: load_all_samples
         path = os.path.join(output, '%s_%s_%s.feather' % (region, layer, side))
         if os.path.exists(path):
@@ -310,18 +310,17 @@ def _subsample_per_source(config, target_vertices,
         L.info('Already subsampled: %s', path)
         return
 
-    L.debug('Subsampling for %s[%s]', projection_name, side)
     mirrored_vertices = target_vertices.copy()
     if utils.is_mirror(side, hemisphere):
         mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
 
     groupby = densities.groupby(['layer_tgt', 'id_tgt']).density.sum().iteritems()
-    all_syns = []
+    all_syns, zero_volume = [], []
     for (layer, id_tgt), density in groupby:
         volume = calculate_constrained_volume(config, brain_regions, id_tgt, mirrored_vertices)
         if volume <= 0.1:
-            L.info('No synapses found for: %s %s', projection_name, side)
-            return
+            zero_volume.append((projection_name, side, layer, ))
+            continue
 
         syns = _add_random_position_and_offset(segment_samples[layer][side])
 
@@ -334,6 +333,9 @@ def _subsample_per_source(config, target_vertices,
         all_syns.append(syns.iloc[picked])
 
         del syns, picked  # drop memory usage as quickly as possible
+
+    if zero_volume:
+        L.info('No volume found for: %s', zero_volume)
 
     if not len(all_syns):
         L.info('No synapses found for: %s %s', projection_name, side)
@@ -359,25 +361,30 @@ def _pick_syns(syns, count):
     return picked
 
 
-def subsample_per_target(output, config, target_population, side):
+def subsample_per_target(output, config, target_population, side, reverse):
     '''Create feathers files in `output` for projections targeting `target_population`'''
-    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
-                                                         config.recipe.layer_profiles)
+    # pylint: disable=too-many-locals
     target_population = target_population  # trick pylint since used in pandas query
     densities = (config.recipe.
-                 calculate_densities(norm_layer_profiles)
+                 calculate_densities(utils.normalize_layer_profiles(config.region_layer_heights,
+                                                                    config.recipe.layer_profiles))
                  .query('target_population == @target_population')
                  )
 
-    projections_mapping = config.recipe.projections_mapping
-    region_tgt = str(densities.region_tgt.unique()[0])
-    segment_samples = load_all_samples(output, region_tgt)
-    gb = densities.groupby(['source_population', 'region_tgt', 'projection_name', 'hemisphere', ])
-    for keys, densities in gb:
-        source_population, region_tgt, projection_name, hemisphere = keys
+    segment_samples = load_all_samples(output, region_tgt=str(densities.region_tgt.unique()[0]))
+    gb = list(densities.groupby(
+        ['source_population', 'region_tgt', 'projection_name', 'hemisphere', ]))
 
+    if reverse:
+        gb.reverse()
+
+    projections_mapping = config.recipe.projections_mapping
+
+    for i, (keys, densities) in enumerate(gb):
+        source_population, _, projection_name, hemisphere = keys
         tgt_vertices = projections_mapping[source_population][projection_name]['vertices']
 
+        L.debug('Subsampling for %s[%s] (%s of %s)', projection_name, side, i, len(gb))
         _subsample_per_source(config, tgt_vertices,
                               projection_name, densities, hemisphere, side,
                               segment_samples, output)

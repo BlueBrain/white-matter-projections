@@ -288,8 +288,9 @@ def allocate(ctx):
 
 @micro.command()
 @click.option('-p', '--population', 'target_population', required=True)
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
-def sample_all(ctx, target_population):
+def sample_all(ctx, target_population, side):
     '''create and save segment sample regions for target_population'''
     from white_matter_projections import sampling
 
@@ -300,25 +301,29 @@ def sample_all(ctx, target_population):
     population = config.recipe.populations.query('population == @target_population')
     brain_regions = config.atlas.load_data('brain_regions')
 
-    sampling.sample_all(output, index_base, population, brain_regions)
+    sampling.sample_all(output, index_base, population, brain_regions, side)
 
 
 @micro.command()
 @click.option('-p', '--population', 'target_population', required=True)
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-r', '--reverse', is_flag=True,
+              help='Perform sampling of projections in reverse order')
 @click.pass_context
-def subsample(ctx, target_population, side):
+def subsample(ctx, target_population, side, reverse):
     from white_matter_projections import sampling
     config, output = ctx.obj['config'], ctx.obj['output']
 
-    sampling.subsample_per_target(output, config, target_population, side)
+    sampling.subsample_per_target(output, config, target_population, side, reverse)
 
 
 @micro.command()
 @click.option('-p', '--population', 'target_population', required=True)
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-r', '--reverse', is_flag=True,
+              help='Perform assignment of projections in reverse order')
 @click.pass_context
-def assignment(ctx, target_population, side):
+def assignment(ctx, target_population, side, reverse):
     from white_matter_projections import micro, mapping, sampling
     config, output = ctx.obj['config'], ctx.obj['output']
     recipe = config.recipe
@@ -335,7 +340,8 @@ def assignment(ctx, target_population, side):
     mapper = mapping.CommonMapper.load_default(config)
     projections_mapping = config.recipe.projections_mapping
     closest_count = config.config['assignment']['closest_count']
-    micro.assignment(output, config, allocations, projections_mapping, mapper, side, closest_count)
+    micro.assignment(
+        output, config, allocations, projections_mapping, mapper, side, closest_count, reverse)
 
 
 @micro.command()
@@ -389,9 +395,63 @@ def concat_assignments(ctx, target_population, side):
 
 
 @micro.command()
+@click.option('-p', '--population', 'target_population', required=True)
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
-@click.option('--working-dir', default=os.path.abspath('.'))
+def write_syn2(ctx, target_population, side):
+    from white_matter_projections import micro, write_output
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    base_path = os.path.join(output, micro.ASSIGNMENT_PATH, side)
+
+    output = os.path.join(output, 'SYN2')
+    utils.ensure_path(output)
+    output_path = os.path.join(output, 'white_matter_%s_%s.syn2' % (target_population, side))
+    if os.path.exists(output_path):
+        L.warning('Already have %s, delete it if it needs to be recreated', output_path)
+        return
+    L.info('Write syn2 for: %s@%s', target_population, side)
+
+    names = (config.recipe.ptypes
+             .merge(config.recipe.projections, on='projection_name')
+             .query('target_population == @target_population')
+             )
+
+    feather_paths, missing = [], []
+    for name, synapse_type in names[['projection_name', 'synapse_type_name']].values:
+        path = os.path.join(base_path, name + '.feather')
+        if not os.path.exists(path):
+            missing.append(path)
+            continue
+        feather_paths.append((path, {'synapse_type_name': int(synapse_type[-1])}))
+
+    if missing:
+        L.warning('Missing feathers for: %s', missing)
+
+    write_output.write_syn2(output_path,
+                            feather_paths,
+                            write_output.create_synapse_data,
+                            config.recipe.synapse_types)
+
+
+@micro.command()
+@click.pass_context
+def write_streamline_mapping(ctx):
+    '''write the streamline mapping for the viz team'''
+    from white_matter_projections import micro, streamlines
+    output = ctx.obj['output']
+    files = (glob(os.path.join(output, micro.ASSIGNMENT_PATH, 'left', '*_gid2row.feather')) +
+             glob(os.path.join(output, micro.ASSIGNMENT_PATH, 'right', '*_gid2row.feather')))
+
+    sgid2row = pd.concat([utils.read_frame(path) for path in files])
+    streamlines.write_mapping(output, sgid2row)
+
+
+@micro.command()
+@click.pass_context
+@click.option('--working-dir', default=os.path.abspath('.'), help='')
 def create_sbatch(ctx, working_dir):
+    '''create sbatch files to run the whole white-matter pipeline'''
     from white_matter_projections import slurm
     config, output = ctx.obj['config'], ctx.obj['output']
 
@@ -403,6 +463,7 @@ def create_sbatch(ctx, working_dir):
     log_location = os.path.join(output, 'logs')
     utils.ensure_path(log_location)
 
+    # TODO: this should come from the config
     slurm_conf = dict(account='proj68',
                       partition='prod',
                       constraint='uc3|uc4',

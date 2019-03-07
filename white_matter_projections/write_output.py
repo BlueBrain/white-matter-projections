@@ -15,7 +15,7 @@ DEFAULT_GROUP = '/synapses/default/properties'
 # Note: syn2 is 'transposed': a single 'column' dataset is actually a vector
 #       and a 'multi-column' has multiple rows
 DataSet = collections.namedtuple('DataSet', 'row_count, dtype')
-DEFAULT_CHUNK_SIZE = 100000
+DEFAULT_CHUNK_SIZE = 1000000
 # from https://github.com/adevress/syn2_spec/blob/master/spec_synapse_v2.md
 DATASETS = {'connected_neurons_pre': DataSet(1, 'i8'),
             'connected_neurons_post': DataSet(1, 'i8'),
@@ -25,12 +25,12 @@ DATASETS = {'connected_neurons_pre': DataSet(1, 'i8'),
             'delay': DataSet(1, 'f'),
             'conductance': DataSet(1, 'f'),
             'u_syn': DataSet(1, 'f'),
-            'depression_time': DataSet(1, 'i8'),
-            'facilitation_time': DataSet(1, 'i8'),
-            'decay_time': DataSet(1, 'i8'),
+            'depression_time': DataSet(1, 'f'),
+            'facilitation_time': DataSet(1, 'f'),
+            'decay_time': DataSet(1, 'f'),
 
             # guessing on this, not in syn2 spec
-            'n_rrp_vesicles': DataSet(1, 'f'),
+            'n_rrp_vesicles': DataSet(1, 'i8'),
 
             'syn_type_id': DataSet(1, 'i8'),
 
@@ -79,12 +79,21 @@ def create_synapse_data(syn2_property_name, dataset, df, synapse_data):
                 #  https://bbpteam.epfl.ch/project/issues/browse/NCX-169?focusedCommentId=82081
                 #  &page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel
                 #  #comment-82081
+
+                # The gaussian truncation was revised to only be one standard deviation:
+                #  https://bbpteam.epfl.ch/project/issues/browse/NCX-246?focusedCommentId=84681
+                #  &page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel
+                #  #comment-84681
+                TRUNCATED_MAX_STDDEV = 1.
+
                 mean, std = dist['params']['mean'], dist['params']['std']
                 data = np.random.normal(mean, std, size=len(frame))
-                rejected = np.nonzero(np.abs(data - mean) > 2. * std)
+                rejected = np.nonzero((np.abs(data - mean) > TRUNCATED_MAX_STDDEV * std) |
+                                      (data <= 0.))
                 while len(rejected[0]):
-                    data[rejected] = np.random.normal(mean, std, size=len(rejected))
-                    rejected = np.nonzero(np.abs(data - mean) > 2. * std)
+                    data[rejected] = np.random.normal(mean, std, size=len(rejected[0]))
+                    rejected = np.nonzero((np.abs(data - mean) > TRUNCATED_MAX_STDDEV * std) |
+                                          (data <= 0.))
                 ret[frame.index] = data
         return ret
 
@@ -167,26 +176,27 @@ def write_syn2(output_path, feather_paths, synapse_data_creator, synapse_data,
 
 
 def chunk_feathers(feather_paths, chunk_size):
-    '''load feathers in feather_paths, yield frames of chunk_size'''
-    frame = None
-    for feather in feather_paths:
+    '''load all feathers in feather_paths, sort them, and yield frames of chunk_size
+
+    need to sort by tgid then sgid:
+    https://bbpteam.epfl.ch/project/issues/browse/NCX-246?focusedCommentId=83641&page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#comment-83641
+    '''
+    frames = []
+    for feather, extra_properties in feather_paths:
+        L.debug('Loading %s', feather)
         df = utils.read_frame(feather)
+        for k, v in extra_properties.items():
+            df[k] = v
+        frames.append(df)
 
-        L.debug('Frame: %s -> %d', feather, len(df))
-        start = 0
+    frames = pd.concat(frames)
+    L.debug('Starting sort')
+    frames.sort_values(['tgid', 'sgid'], inplace=True)
+    L.debug('Done sort')
 
-        while start < len(df):
-            end = min(start + chunk_size, len(df))
-            if frame is None:
-                frame = df.iloc[start:end]
-            else:
-                end = chunk_size - len(frame)
-                frame = pd.concat((frame, df.iloc[start:end]),
-                                  sort=False, ignore_index=True)
-            start = end
+    slices = [slice(start, start + chunk_size)
+              for start in range(0, len(frames), chunk_size)]
 
-            if len(frame) == chunk_size:
-                yield frame
-                frame = None
-
-    yield frame
+    for i, sl in enumerate(slices):
+        L.debug('Output: slice %d of %d', i, len(slices))
+        yield frames.iloc[sl]

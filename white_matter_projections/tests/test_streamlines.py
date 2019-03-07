@@ -199,29 +199,22 @@ def test_load_save():
 
 
 def test_write_output():
-    streamlines = ([[[0, 0, 0]]] * 10) + [[[1, 1, 1]]] + ([[[3, 3, 3]]] * 12)
-
-    columns = ['path_row', 'sgid']
+    columns = ['row', 'sgid']
     sgid2path_row = pd.DataFrame([[10, 100],
                                   [20, 200],
+                                  [-1, 200],
                                   ],
                                  columns=columns)
 
     with utils.tempdir('test_write_output') as tmp:
-        sl.write_output(tmp, streamlines, sgid2path_row)
-        path = os.path.join(tmp, 'streamline.rows')
-        ok_(os.path.exists(path))
-        with open(path) as fd:
-            lines = fd.readlines()
-            eq_(lines[0].split(), ['1', '1', '1', '1'])
-            eq_(lines[1].split(), ['1', '3', '3', '3'])
+        sl.write_mapping(tmp, sgid2path_row)
 
         path = os.path.join(tmp, 'sgid2path_row.mapping')
         ok_(os.path.exists(path))
         with open(path) as fd:
             lines = fd.readlines()
-            eq_(lines[0].split(), ['0', '100'])
-            eq_(lines[1].split(), ['1', '200'])
+            eq_(lines[0].split(), ['10', '100'])
+            eq_(lines[1].split(), ['20', '200'])
 
 
 #def test_assign_streamlines():

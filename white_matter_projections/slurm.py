@@ -18,8 +18,13 @@ class Stage(object):
         self.next = next_
 
 
-STAGES = (Stage('sample_all', 'sample_all --population {region}_ALL_LAYERS',
-                ['subsample_left', 'subsample_right', ]),
+# TODO: this should come from the config, or the true path pulled from the system modules
+SYNTOOL = ('/nix/store/wsrkmad1ygr8flr31g2gpwlf83px63mv-generated-env-module-synapsetool/'
+           'bin/syn-tool create_index')
+STAGES = (Stage('sample_all_right', 'sample_all --population {region}_ALL_LAYERS --side right',
+                ['subsample_right', ]),
+          Stage('sample_all_left', 'sample_all --population {region}_ALL_LAYERS --side left',
+                ['subsample_left', ]),
           Stage('subsample_left', 'subsample --population {region}_ALL_LAYERS --side left',
                 ['assignment_left', ]),
           Stage('subsample_right', 'subsample --population {region}_ALL_LAYERS --side right',
@@ -28,8 +33,13 @@ STAGES = (Stage('sample_all', 'sample_all --population {region}_ALL_LAYERS',
                 ['syn2_left', ]),
           Stage('assignment_right', 'assignment --population {region}_ALL_LAYERS --side right',
                 ['syn2_right', ]),
-          Stage('syn2_left', 'write_syn2 --population {region}_ALL_LAYERS --side left', []),
-          Stage('syn2_right', 'write_syn2 --population {region}_ALL_LAYERS --side right', []),
+          Stage('syn2_right',
+                ('write_syn2 --population {region}_ALL_LAYERS --side right &&'
+                 '%s {output_path}/SYN2/white_matter_{region}_ALL_LAYERS_right.syn2 ' % SYNTOOL),
+                []),
+          Stage('syn2_left',
+                ('write_syn2 --population {region}_ALL_LAYERS --side left &&'
+                 '%s {output_path}/SYN2/white_matter_{region}_ALL_LAYERS_left.syn2' % SYNTOOL), []),
           )
 STAGES = {s.name: s for s in STAGES}
 
@@ -63,7 +73,7 @@ def write_sbatch_stage(slurm_conf, app_path, config_path, working_directory,
     utils.ensure_path(os.path.join(sbatch_output, stage.name))
 
     for region in regions:
-        cmd = launch_cmd.format(region=region) + ' || exit; '
+        cmd = launch_cmd.format(region=region, output_path=output_path) + ' || exit; '
 
         for stage_next in stage.next:
             cmd += '\nsbatch ' + os.path.join(sbatch_output, stage_next, region + '.sbatch')

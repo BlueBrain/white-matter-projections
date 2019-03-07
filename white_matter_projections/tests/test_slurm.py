@@ -27,12 +27,12 @@ def test_write_sbatch_stage():
                 working_directory='.',
                 output_path=os.path.join(tmp, 'output'),
                 sbatch_output=os.path.join(tmp, 'sbatch_output'),
-                stage='sample_all',
+                stage='sample_all_left',
                 regions=['foo', 'bar', 'baz', ])
         ok_(os.path.isdir(os.path.join(tmp, 'sbatch_output')))
-        ok_(os.path.isdir(os.path.join(tmp, 'sbatch_output', 'sample_all')))
+        ok_(os.path.isdir(os.path.join(tmp, 'sbatch_output', 'sample_all_left')))
 
-        path = os.path.join(tmp, 'sbatch_output', 'sample_all', 'foo.sbatch')
+        path = os.path.join(tmp, 'sbatch_output', 'sample_all_left', 'foo.sbatch')
         ok_(os.path.exists(path))
         with open(path) as fd:
             contents = fd.read()

@@ -9,6 +9,7 @@ from utils import tempdir
 from nose.tools import eq_, ok_, assert_raises
 from numpy.testing import assert_allclose
 
+
 def test_create_synapse_data():
     for i, (syn2_property, prop) in enumerate((('connected_neurons_pre', 'sgid'),
                                                ('connected_neurons_post', 'tgid'),
@@ -73,9 +74,13 @@ def test__create_syn2_properties():
 
 
 def test_write_syn2():
-    df = pd.DataFrame(np.random.random((5, 1)), columns=['delay'])
+    count = 5
+    df = pd.DataFrame(np.random.random((count, 1)), columns=['delay'])
+    df['tgid'] = np.random.randint(10, size=(count, ))
+    df['sgid'] = np.random.randint(10, size=(count, ))
     needed_datasets = {'delay': wo.DataSet(1, np.float32), }
     synapse_data = {}
+    extra_properties = {'foo': 3}
 
     def _fake_create_synapse_data(_, __, df, ___):
         return [1.] * len(df)
@@ -87,7 +92,7 @@ def test_write_syn2():
         utils.write_frame(path0, df)
 
         wo.write_syn2(output_path,
-                      [path0],
+                      [(path0, extra_properties, )],
                       _fake_create_synapse_data,
                       synapse_data,
                       needed_datasets)
@@ -100,16 +105,23 @@ def test_write_syn2():
 
 
 def test_chunk_feathers():
-    df = pd.DataFrame(np.random.random((5, 3)), columns=utils.XYZ)
+    count = 5
+    df = pd.DataFrame(np.random.random((count, 3)), columns=utils.XYZ)
+    df['tgid'] = np.random.randint(10, size=(count, ))
+    df['sgid'] = np.random.randint(10, size=(count, ))
+
     with tempdir('test_chunk_feathers') as tmp:
         path0 = os.path.join(tmp, '0.feather')
         path1 = os.path.join(tmp, '1.feather')
         utils.write_frame(path0, df)
         utils.write_frame(path1, df)
 
-        ret = wo.chunk_feathers([path0, path1], chunk_size=3)
-        eq_(next(ret).shape, (3, 3))
-        eq_(next(ret).shape, (3, 3))  # first consumed, part of second
-        eq_(next(ret).shape, (3, 3))
-        eq_(next(ret).shape, (1, 3))
+        extra_properties = {'foo': 3}
+        ret = wo.chunk_feathers([(path0, extra_properties, ),
+                                 (path1, extra_properties, ), ],
+                                chunk_size=3)
+        eq_(next(ret).shape, (3, 6))
+        eq_(next(ret).shape, (3, 6))  # first consumed, part of second
+        eq_(next(ret).shape, (3, 6))
+        eq_(next(ret).shape, (1, 6))
         assert_raises(StopIteration, next, ret)

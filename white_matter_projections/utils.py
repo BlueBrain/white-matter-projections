@@ -31,6 +31,7 @@ XYZ = list('xyz')
 SIDES = ('left', 'right')
 HEMISPHERE = CategoricalDtype(categories=['ipsi', 'contra'], ordered=True)
 SIDE = CategoricalDtype(categories=SIDES, ordered=True)
+LAYERS = ('l1', 'l2', 'l3', 'l4', 'l5', 'l6a', 'l6b', )
 
 
 class Config(object):
@@ -198,7 +199,7 @@ def calculate_region_layer_heights(atlas, hierarchy, regions):
     return thicknesses
 
 
-def region_layer_heights(layer_heights, columns=('l1', 'l2', 'l3', 'l4', 'l5', 'l6a', 'l6b', )):
+def region_layer_heights(layer_heights, columns=LAYERS):
     '''convert layer heights dictionary to pandas DataFrame'''
     return pd.DataFrame.from_dict(layer_heights, orient='index', columns=columns)
 

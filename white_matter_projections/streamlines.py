@@ -444,9 +444,14 @@ def _read_streamlines_rows(path):
 
 
 def _write_streamlines_rows(path, streamlines):
-    '''write the streamlines, one per line, in the form:
+    '''write the streamlines, one per line
 
+    in the form:
     n_points x0 y0 z0 x1 y1 z1 ...
+
+    as per:
+
+    https://bbpteam.epfl.ch/project/issues/browse/NCX-54?focusedCommentId=81835&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-81835
     '''
     with open(path, 'w') as fd:
         for stream in streamlines:
@@ -455,21 +460,11 @@ def _write_streamlines_rows(path, streamlines):
                                                  points=points))
 
 
-def write_output(output_path, streamlines, sgid2path_row):
-    '''write streamline output as requested by VIZ team
-
-    https://bbpteam.epfl.ch/project/issues/browse/NCX-54?focusedCommentId=81835&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-81835
-    '''
-    sgid2path_row = sgid2path_row.copy()
-
-    used_streamlines, row_mapping = [], {}
-    for i, row in enumerate(sgid2path_row.path_row.unique()):
-        used_streamlines.append(streamlines[row])
-        row_mapping[row] = i
-
-    path = os.path.join(output_path, 'streamline.rows')
-    _write_streamlines_rows(path, used_streamlines)
-
-    sgid2path_row.path_row.replace(row_mapping, inplace=True)
+def write_mapping(output_path, sgid2row):
+    '''write the streamline mapping to the output directory, for the VIZ team'''
+    sgid2row = sgid2row[sgid2row.row >= 0].copy()
+    sgid2row['row'] = sgid2row.row.astype(int)
+    sgid2row['sgid'] = sgid2row.sgid.astype(int)
+    sgid2row.sort_values(list(sgid2row.columns), inplace=True)
     path = os.path.join(output_path, 'sgid2path_row.mapping')
-    sgid2path_row.to_csv(path, sep=' ', index=False, header=False)
+    sgid2row.to_csv(path, sep=' ', index=False, header=False)

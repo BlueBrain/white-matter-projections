@@ -86,6 +86,7 @@ def test_sample_all():
         np.array([[101, 201, 10., 0., 10., 0., 10., 0., 10., 31337], ]),
         columns=sampling.SEGMENT_COLUMNS)
 
+    side = 'right'
     with tempdir('test_sample_all') as tmp:
         index_base = os.path.join(tmp, 'fake_index_base')
         os.makedirs(os.path.join(index_base, 'FRP@left'))
@@ -93,14 +94,13 @@ def test_sample_all():
 
         with patch('white_matter_projections.sampling._full_sample_parallel') as mock_fsp:
             mock_fsp.return_value = df
-            sampling.sample_all(tmp, index_base, population, brain_regions)
+            sampling.sample_all(tmp, index_base, population, brain_regions, side)
             for l in ('l1', 'l2', 'l3'):
                 ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s_right.feather' % l)))
-                ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s_left.feather' % l)))
-            eq_(mock_fsp.call_count, 6)
+            eq_(mock_fsp.call_count, 3)
 
             mock_fsp.reset_mock()
-            sampling.sample_all(tmp, index_base, population, brain_regions)
+            sampling.sample_all(tmp, index_base, population, brain_regions, side)
             eq_(mock_fsp.call_count, 0)
 
 
