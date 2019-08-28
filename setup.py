@@ -39,7 +39,9 @@ setup(
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
     ],
-    scripts=[
-        'apps/white-matter',
-    ],
+    entry_points={
+        'console_scripts': [
+            'white-matter=white_matter_projections.app.__main__:main'
+        ]
+    },
 )
