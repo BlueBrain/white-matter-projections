@@ -16,7 +16,6 @@ Thus:
         tgt synapse location points -> tgt voxels -> tgt flat points
 '''
 
-import itertools as it
 import logging
 
 import numpy as np
@@ -26,7 +25,6 @@ from white_matter_projections.utils import (X, Y,
 
 
 L = logging.getLogger(__name__)
-NEIGHBORS = np.array(list(set(it.product([-1, 0, 1], repeat=3)) - set([(0, 0, 0)])))
 cXZ = np.s_[:, X:3:2]
 
 
@@ -116,7 +114,7 @@ class CommonMapper(object):
         '''load default mapping'''
         flat_map = config.flat_map
         position_to_voxel = PositionToVoxel(flat_map.brain_regions)
-        voxel_to_flat = VoxelToFlat(config.voxel_to_flat(), flat_map.view_lookup.shape)
+        voxel_to_flat = VoxelToFlat(flat_map.flat_map, flat_map.shape)
         flat_to_flat = FlatToFlat(config.recipe.projections_mapping, flat_map.center_line_2d)
         return cls(position_to_voxel, voxel_to_flat, flat_to_flat)
 

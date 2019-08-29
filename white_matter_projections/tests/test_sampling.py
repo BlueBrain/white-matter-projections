@@ -11,7 +11,7 @@ from white_matter_projections import sampling, utils
 from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
 from utils import (tempdir, gte_,
-                   fake_brain_regions, fake_voxel_to_flat_mapping,
+                   fake_brain_regions, fake_flat_map,
                    )
 from mock import patch, Mock
 
@@ -51,7 +51,7 @@ def test__full_sample_worker(patch_synapses):
 
 
 def test__full_sample_parallel():
-    brain_regions = fake_brain_regions()
+    brain_regions, _ = fake_brain_regions()
     brain_regions.raw[0, 0, 0] = 1
     index_path = 'fake_index_path'
 
@@ -80,7 +80,7 @@ def test_sample_all():
                   (2, 'FRP', 'l2'),
                   (30, 'FRP', 'l3')]),
         columns=['id', 'region', 'layer'])
-    brain_regions = fake_brain_regions()
+    brain_regions, _ = fake_brain_regions()
 
     df = pd.DataFrame(
         np.array([[101, 201, 10., 0., 10., 0., 10., 0., 10., 31337], ]),
@@ -146,7 +146,7 @@ def test__add_random_position_and_offset():
 
 def test__mask_xyzs_by_vertices():
     config = Mock()
-    config.flat_map, config.voxel_to_flat.return_value = fake_voxel_to_flat_mapping()
+    config.flat_map = fake_flat_map()
 
     vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
     xyzs = np.array([[1.1, 0.1, 0, ],
@@ -177,7 +177,7 @@ def test__mask_xyzs_by_vertices():
     with patch('white_matter_projections.sampling.utils') as utils:
         utils.in_2dtriangle = in_2dtriangle
         utils.Config.return_value = config = Mock()
-        config.flat_map, config.voxel_to_flat.return_value = fake_voxel_to_flat_mapping()
+        config.flat_map = fake_flat_map()
         res = sampling._mask_xyzs_by_vertices_helper('fake_config', vertices, xyzs, slice(None))
         eq_([True, True], list(res))
 
@@ -191,7 +191,7 @@ def test_mask_xyzs_by_vertices():
     with patch('white_matter_projections.sampling.utils') as utils:
         utils.in_2dtriangle = in_2dtriangle
         utils.Config.return_value = config = Mock()
-        config.flat_map, config.voxel_to_flat.return_value = fake_voxel_to_flat_mapping()
+        config.flat_map = fake_flat_map()
         res = sampling.mask_xyzs_by_vertices(
             'fake_config_path', vertices, xyzs, n_jobs=1, chunk_size=1000000)
         eq_([True, True], list(res))
@@ -199,7 +199,7 @@ def test_mask_xyzs_by_vertices():
 
 def test_calculate_constrained_volume():
     config = Mock()
-    config.flat_map, config.voxel_to_flat.return_value = fake_voxel_to_flat_mapping()
+    config.flat_map = fake_flat_map()
     brain_regions = config.flat_map.brain_regions
     region_id = 314159  # fake
     vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
@@ -235,8 +235,8 @@ def test__subsample_per_source():
                               ['l1', 2, 0.145739]
                               ], columns=['layer_tgt', 'id_tgt', 'density'])
     config = Mock()
-    config.flat_map, config.voxel_to_flat.return_value = fake_voxel_to_flat_mapping()
-    config.atlas.load_data.return_value = fake_brain_regions()
+    config.flat_map = fake_flat_map()
+    config.atlas.load_data.return_value, _ = fake_brain_regions()
 
     hemisphere = 'contra'
 

@@ -47,13 +47,6 @@ def test_get_connected_regions():
                        expected.sort_values(columns).reset_index(drop=True))
 
 
-#def test_get_centroids():
-#    flat_map = utils.fake_flat_map()
-#    ret = sl.get_connected_centroids(flat_map, RECIPE)
-#    import ipdb; pdb.set_trace()  # XXX BREAKPOINT
-#    pass
-
-
 def test_get_streamline_per_region_connection():
     connected_regions = sl.get_connected_regions(RECIPE)
     columns = ['source', 'target', 'start_z', 'end_z', 'path_row']
@@ -220,3 +213,8 @@ def test_write_output():
 #def test_assign_streamlines():
 #    sl.assign_streamlines(cells, streamline_per_region, target_region, feather_path, center_line_3d)
 #
+#def test_get_centroids():
+#    flat_map = utils.fake_flat_map()
+#    ret = sl.get_connected_centroids(flat_map, RECIPE)
+#    import ipdb; pdb.set_trace()  # XXX BREAKPOINT
+#    pass

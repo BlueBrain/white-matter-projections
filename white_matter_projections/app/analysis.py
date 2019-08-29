@@ -27,6 +27,21 @@ def cmd(ctx, config, output):
 
 
 @cmd.command()
+@click.pass_context
+def flat_map(ctx):
+    '''Plot the source locations, after allocation, but before used'''
+    from white_matter_projections import display
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    name = os.path.join(output, 'flat_map.png')
+    with ctx.obj['figure'](name) as fig:
+        ax = fig.gca()
+        ax.set_aspect('equal')
+
+        display.plot_allen_coloured_flat_map(ax, config, regions='all')
+
+
+@cmd.command()
 @click.option('-p', '--population', 'source_population', required=False, default=None)
 @click.pass_context
 def source_locations(ctx, source_population):

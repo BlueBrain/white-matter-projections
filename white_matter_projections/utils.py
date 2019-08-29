@@ -128,12 +128,12 @@ class Config(object):
         '''conversion from voxel space to 2d flat space'''
         from white_matter_projections import flat_mapping
         config = self.config['flat_mapping']
-        flat_map = flat_mapping.FlatMap.load(config['cortical_map'],
+        flat_map = flat_mapping.FlatMap.load(config['flat_map'],
+                                             config['flat_map_shape'],
                                              config['brain_regions'],
                                              config['hierarchy'],
                                              config['center_line_2d'],
-                                             config['center_line_3d'],
-                                             self.cache_dir)
+                                             config['center_line_3d'])
         return flat_map
 
     @lru_cache()
@@ -147,22 +147,6 @@ class Config(object):
             cells = cells.query('mtype in @categories')
 
         return cells
-
-    def voxel_to_flat(self):
-        '''get the voxel to flat mapping
-
-        Returns: VoxelData with ravelled values corresponding to the
-        x/y coordinates in the flat_map.view_lookup
-        '''
-        path = os.path.join(self.cache_dir, 'voxel_to_flat.nrrd')
-        if os.path.exists(path):
-            ret = voxcell.VoxelData.load_nrrd(path)
-        else:
-            from white_matter_projections import flat_mapping
-            ret = flat_mapping.get_voxel_to_flat_mapping(self)
-            ret.save_nrrd(path)
-
-        return ret
 
     @staticmethod
     def _relative_to_config(config_path, path):

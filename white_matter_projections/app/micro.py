@@ -8,14 +8,14 @@ import click
 import pandas as pd
 
 from white_matter_projections import utils
-from white_matter_projections.app.utils import print_color
+from white_matter_projections.app.utils import print_color, REQUIRED_PATH
 
 
 L = logging.getLogger(__name__)
 
 
 @click.group()
-@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.option('-c', '--config', type=REQUIRED_PATH, required=True)
 @click.option('-o', '--output', required=True)
 @click.pass_context
 def cmd(ctx, config, output):

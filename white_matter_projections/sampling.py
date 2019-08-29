@@ -234,7 +234,7 @@ def _mask_xyzs_by_vertices(config, vertices, xyzs, sl):
         array of bools masking xyzs by rows
     '''
     position_to_voxel = mapping.PositionToVoxel(config.flat_map.brain_regions)
-    voxel_to_flat = mapping.VoxelToFlat(config.voxel_to_flat(), config.flat_map.view_lookup.shape)
+    voxel_to_flat = mapping.VoxelToFlat(config.flat_map.flat_map, config.flat_map.shape)
 
     voxel_ijks, offsets = position_to_voxel(xyzs[sl])
     pos, offset = voxel_to_flat(voxel_ijks, offsets)

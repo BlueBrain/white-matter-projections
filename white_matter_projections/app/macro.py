@@ -4,11 +4,11 @@ import click
 
 import numpy as np
 from white_matter_projections import utils
-from white_matter_projections.app.utils import print_color
+from white_matter_projections.app.utils import print_color, REQUIRED_PATH
 
 
 @click.group()
-@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.option('-c', '--config', type=REQUIRED_PATH, required=True)
 @click.pass_context
 def cmd(ctx, config):
     '''Macro connectivity: based on recipe, but not concretized with circuit details'''

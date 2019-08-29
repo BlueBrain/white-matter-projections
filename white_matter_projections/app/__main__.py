@@ -6,8 +6,9 @@ import logging
 
 import click
 from white_matter_projections import utils
-from white_matter_projections.app.utils import print_color
-from white_matter_projections.app import (analysis,
+from white_matter_projections.app.utils import print_color, REQUIRED_PATH
+from white_matter_projections.app import (aibs,
+                                          analysis,
                                           macro,
                                           micro,
                                           )
@@ -66,7 +67,7 @@ def app(ctx, verbose, interactive_matplotlib, plot_format):
 
 
 @app.command()
-@click.option('-c', '--config', type=click.Path(exists=True), required=True)
+@click.option('-c', '--config', type=REQUIRED_PATH, required=True)
 @click.pass_context
 def repl(ctx, config):  # pylint: disable=unused-argument
     '''Start ipython REPL'''
@@ -78,6 +79,7 @@ def repl(ctx, config):  # pylint: disable=unused-argument
     IPython.embed(banner1='You have access to: config, norm_layer_profiles')
 
 
+app.add_command(name='aibs', cmd=aibs.cmd)
 app.add_command(name='analysis', cmd=analysis.cmd)
 app.add_command(name='macro', cmd=macro.cmd)
 app.add_command(name='micro', cmd=micro.cmd)

@@ -99,12 +99,6 @@ def fake_brain_regions():
     raw[1, :, 0:2] = 2
     raw[2, :4, 2:3] = 30
     brain_regions = VoxelData(raw, np.ones(3), offset=np.zeros(3))
-    return brain_regions
-
-
-def fake_flat_map():
-    from white_matter_projections import flat_mapping
-    brain_regions = fake_brain_regions()
 
     hierarchy = Hierarchy(
         {'id': 1, 'acronym': 'one',
@@ -116,32 +110,66 @@ def fake_flat_map():
          ]},
     )
 
-    view_lookup = -1 * np.ones((5, 5), dtype=int)
-    view_lookup[1, 0] = 0
-    view_lookup[1, 1] = 1
-    view_lookup[2, 2] = 2
-    paths = np.array([[25, 26, 30, 31, 35, ],
-                      [36, 40, 41, 45, 46, ],
-                      [52, 57, 62, 67, 0, ],
-                      ])
+    return brain_regions, hierarchy
 
-    center_line_2d = view_lookup.shape[1] / 2.
-    center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape + brain_regions.offset) / 2.
-    center_line_3d = center_line_3d[2]
 
-    flat_map = flat_mapping.FlatMap(
-        brain_regions, hierarchy, view_lookup, paths,
-        #center_line_2d=10., center_line_3d=10.)
-        center_line_2d, center_line_3d)
-    return flat_map
+class CorticalMap(object):
+    def __init__(self, paths, view_lookup,
+                 hierarchy, brain_regions,
+                 center_line_2d, center_line_3d):
+        self.paths = paths
+        self.view_lookup = view_lookup
+        self.hierarchy = hierarchy
+        self.brain_regions = brain_regions
+        self.center_line_2d = center_line_2d
+        self.center_line_3d = center_line_3d
 
-def fake_voxel_to_flat_mapping():
+    def load_cortical_view_lookup(self):
+        return self.view_lookup
+
+    def load_cortical_paths(self):
+        return self.paths
+
+    def load_hierarchy(self):
+        return self.hierarchy
+
+    def load_brain_regions(self):
+        return self.brain_regions
+
+    @classmethod
+    def fake_cortical_map(cls):
+        brain_regions, hierarchy = fake_brain_regions()
+
+        view_lookup = -1 * np.ones((5, 5), dtype=int)
+        view_lookup[1, 0] = 0
+        view_lookup[1, 1] = 1
+        view_lookup[2, 2] = 2
+        paths = np.array([[25, 26, 30, 31, 35, ],
+                          [36, 40, 41, 45, 46, ],
+                          [52, 57, 62, 67, 0, ],
+                          ])
+
+        center_line_2d = view_lookup.shape[1] / 2.
+        center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape + brain_regions.offset) / 2.
+        center_line_3d = center_line_3d[2]
+        return cls(paths, view_lookup,
+                   hierarchy, brain_regions,
+                   center_line_2d, center_line_3d)
+
+
+def fake_flat_map():
     from white_matter_projections import flat_mapping
-    flat_map = fake_flat_map()
-    regions = ['one', 'two', 'twenty', 'thirty', ]
+    flat_map = VoxelData.load_nrrd(os.path.join(DATADIR, '5x5x5_flat_map.nrrd'))
+    flat_map_shape = (5, 5, )
 
-    locations = np.array(np.nonzero(flat_map.brain_regions.raw)).T
-    path_fits = flat_mapping._fit_paths(flat_map)
-    flat_xy = flat_mapping._voxel2flat(flat_map, regions, path_fits, locations)
-    voxel_to_flat_mapping = flat_mapping._create_voxcell_from_xy(locations, flat_map, flat_xy)
-    return flat_map, voxel_to_flat_mapping
+    brain_regions, hierarchy = fake_brain_regions()
+    center_line_2d = flat_map.shape[1] / 2.
+    center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape +
+                      brain_regions.offset) / 2.
+
+    return flat_mapping.FlatMap(flat_map,
+                                flat_map_shape,
+                                brain_regions,
+                                hierarchy,
+                                center_line_2d,
+                                center_line_3d[2])
