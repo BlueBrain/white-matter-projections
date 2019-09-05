@@ -27,28 +27,6 @@ def cmd(ctx, config, output):
 
 @cmd.command()
 @click.pass_context
-def download_streamlines(ctx):
-    '''Download as many streamlines as possible used in recipe from AIBS'''
-    from white_matter_projections import streamlines
-    config, output = ctx.obj['config'], ctx.obj['output']
-
-    centroids = streamlines.get_connected_centroids(config.flat_map, config.recipe)
-    streamline_csvs = os.path.join(output, 'streamlines')
-    if not os.path.exists(streamline_csvs):
-        L.info('Downlading streamlines to %s', streamline_csvs)
-        utils.ensure_path(streamline_csvs)
-        missing = streamlines.download_streamlines(centroids, config.hierarchy, streamline_csvs)
-
-        if len(missing):
-            L.info('Missing streamlines: %s', missing)
-
-    csv_paths = glob(os.path.join(streamline_csvs, '*.csv'))
-    metadata, paths = streamlines.convert_csvs(csv_paths, centroids, config.flat_map.center_line_3d)
-    streamlines.save(output, metadata, paths)
-
-
-@cmd.command()
-@click.pass_context
 def allocate(ctx):
     '''Allocate source cell GIDS by region, and store them for use when assigning target GIDS'''
     from white_matter_projections import micro
@@ -102,10 +80,12 @@ def subsample(ctx, target_population, side, reverse):
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.option('-r', '--reverse', is_flag=True,
               help='Perform assignment of projections in reverse order')
+@click.option('--use-streamlines', is_flag=True, default=False,
+              help='Calculate delay using already downloaded streamlines')
 @click.pass_context
-def assignment(ctx, target_population, side, reverse):
+def assignment(ctx, target_population, side, reverse, use_streamlines):
     '''assign sgids created in allocations with candidate synapses from subsample'''
-    from white_matter_projections import micro, mapping
+    from white_matter_projections import micro
     config, output = ctx.obj['config'], ctx.obj['output']
 
     join_cols = ['projection_name', 'source_population']
@@ -118,11 +98,17 @@ def assignment(ctx, target_population, side, reverse):
                    .join(hemisphere, on=join_cols)
                    )
 
-    mapper = mapping.CommonMapper.load_default(config)
     projections_mapping = config.recipe.projections_mapping
     closest_count = config.config['assignment']['closest_count']
-    micro.assignment(
-        output, config, allocations, projections_mapping, mapper, side, closest_count, reverse)
+
+    micro.assignment(output,
+                     config,
+                     allocations,
+                     projections_mapping,
+                     side,
+                     closest_count,
+                     reverse,
+                     use_streamlines)
 
 
 @cmd.command()

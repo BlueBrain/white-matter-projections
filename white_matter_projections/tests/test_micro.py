@@ -260,7 +260,7 @@ def test_assign_groups():
     eq_(list(res), [10, 20])
 
 
-def test__calculate_delay():
+def test__calculate_delay_streamline():
     np.random.seed(42)
     src_cells = pd.DataFrame([(55., 0., 0.,),
                               (65., 0., 0.,),
@@ -283,12 +283,32 @@ def test__calculate_delay():
                            'intra_region': 1.
                            }
 
-    delay, gid2row = micro._calculate_delay(src_cells, syns, streamline_metadata,
-                                            conduction_velocity=conduction_velocity)
-    eq_(list(gid2row.row), [5, 3, 5, 5,])  # based on random picking
+    delay, gid2row = micro._calculate_delay_streamline(src_cells, syns, streamline_metadata,
+                                                       conduction_velocity=conduction_velocity)
+    eq_(list(gid2row.row), [5, 3, 5, 5, ])  # based on random picking
     assert_allclose(gid2row.sgid.values, syns.sgid.values)
     eq_(list(delay), [557., 366., 565., 584.])
 
+
+def test__calculate_delay_direct():
+    conduction_velocity = {'inter_region': 10.,
+                           'intra_region': 1.
+                           }
+
+    src_cells = pd.DataFrame([(55., 0., 0.,),
+                              (65., 0., 0.,),
+                              (75., 0., 0.,),
+                              (85., 0., 0.,), ],
+                             columns=utils.XYZ,
+                             index=[1, 2, 3, 4])
+    syns = pd.DataFrame([(1, 1., 0., 0.),
+                         (2, 2., 0., 0.),
+                         (2, 3., 0., 0.),
+                         (4, 4., 0., 0.), ],
+                         columns=['sgid', ] + utils.XYZ)
+
+    delay = micro._calculate_delay_direct(src_cells, syns, conduction_velocity)
+    assert_allclose(delay, np.array([54, 63, 62, 81, ]) / 10.)
 
 #def test_assignment():
 #    config

@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from joblib import Parallel, delayed
-from white_matter_projections import sampling, utils, streamlines
+from white_matter_projections import sampling, utils, streamlines, mapping
 
 
 ASSIGNMENT_PATH = 'ASSIGNED'
@@ -461,14 +461,25 @@ def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=No
     return src_flat.index[ids]
 
 
-def _calculate_delay(src_cells, syns, streamline_metadata, conduction_velocity):
+def _calculate_delay_direct(src_cells, syns, conduction_velocity):
+    '''make the 'direct' (ie: straight) connection delay
+
+    Note: assumes the cells are *directly* connected with inter_region conduction velocity
+    '''
+    src_cells = src_cells[utils.XYZ].loc[syns.sgid].to_numpy()
+    delay = np.linalg.norm(src_cells - syns[utils.XYZ].to_numpy(), axis=1)
+    delay /= conduction_velocity['inter_region']
+    return delay.astype(np.float32)
+
+
+def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction_velocity):
     '''for all the synapse locations, assign a streamline
 
     Args:
         src_cells(DataFrame): positions with index of GID
         syns(DataFrame): target synapses positions and sgid
         streamline_metadata(DataFrame): describes the inter-region distance
-        between from points within the regions, a row within this dataset
+        between points within the regions; a row within this dataset
         is chosen, and saved so that the streamlines can be visualized
         conduction_velocity(dict): values for inter and intra region velocities
         in um/ms
@@ -503,17 +514,20 @@ def _calculate_delay(src_cells, syns, streamline_metadata, conduction_velocity):
     return delay.astype(np.float32), gid2row
 
 
-def assignment(output, config, allocations, projections_mapping, mapper, side,
-               closest_count, reverse):
+def assignment(output, config, allocations, projections_mapping, side,
+               closest_count, reverse, use_streamlines):
     '''perform ssignment'''
     # pylint: disable=too-many-locals
-    populations = config.recipe.populations
     samples_path = os.path.join(output, sampling.SAMPLE_PATH)
 
     left_cells, right_cells = partition_cells_left_right(config.get_cells(),
                                                          config.flat_map.center_line_3d)
 
-    streamline_metadata = streamlines.load(output, only_metadata=True)
+    if use_streamlines:
+        streamline_metadata = streamlines.load(output, only_metadata=True)
+
+    mapper = mapping.CommonMapper.load_default(config)
+
     conduction_velocity = config.config['conduction_velocity']
 
     count = len(allocations)
@@ -551,14 +565,20 @@ def assignment(output, config, allocations, projections_mapping, mapper, side,
         sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
         syns['sgid'] = assign_groups(src_coordinates, flat_tgt_uvs, sigma, closest_count)
 
-        source_region = utils.population2region(populations, source_population)
-        target_region = utils.population2region(populations, target_population)
-        source_region, target_region = source_region, target_region  # trick pylint
-        metadata = streamline_metadata.query('source == @source_region and '
-                                             'target == @target_region and '
-                                             'target_side == @side and '
-                                             'hemisphere == @hemisphere'
-                                             )
-        syns['delay'], gid2row = _calculate_delay(src_cells, syns, metadata, conduction_velocity)
-        utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
+        if use_streamlines:
+            source_region = utils.population2region(config.recipe.populations, source_population)
+            target_region = utils.population2region(config.recipe.populations, target_population)
+            source_region, target_region = source_region, target_region  # trick pylint
+            metadata = streamline_metadata.query('source == @source_region and '
+                                                 'target == @target_region and '
+                                                 'target_side == @side and '
+                                                 'hemisphere == @hemisphere'
+                                                 )
+            syns['delay'], gid2row = _calculate_delay_streamline(src_cells,
+                                                                 syns,
+                                                                 metadata,
+                                                                 conduction_velocity)
+            utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
+        else:
+            syns['delay'] = _calculate_delay_direct(src_cells, syns, conduction_velocity)
         utils.write_frame(output_path, syns)

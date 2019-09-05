@@ -409,7 +409,16 @@ def _mirror_streamlines(metadata, streamlines, center_line_3d):
 
 def load(path, only_metadata=False):
     '''load_streamlines'''
-    metadata = pd.read_csv(os.path.join(path, STREAMLINES_NAME + '.csv'),
+    streamlines_path = os.path.join(path, STREAMLINES_NAME + '.csv')
+    streamlines_rows = os.path.join(path, STREAMLINES_NAME + '.rows')
+
+    if not os.path.exists(streamlines_path):
+        raise Exception('Missing streamlines: %s' % streamlines_path)
+
+    if not os.path.exists(streamlines_rows):
+        raise Exception('Missing streamlines: %s' % streamlines_rows)
+
+    metadata = pd.read_csv(streamlines_path,
                            dtype={'target_side': utils.SIDE,
                                   'hemisphere': utils.HEMISPHERE,
                                   })
@@ -418,8 +427,7 @@ def load(path, only_metadata=False):
     if only_metadata:
         return metadata
 
-    path = os.path.join(path, STREAMLINES_NAME + '.rows')
-    streamlines = _read_streamlines_rows(path)
+    streamlines = _read_streamlines_rows(streamlines_rows)
 
     return metadata, streamlines
 

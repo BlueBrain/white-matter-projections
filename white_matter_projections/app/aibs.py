@@ -1,10 +1,15 @@
 '''commands related to Allen Institute'''
 from __future__ import print_function
+from glob import glob
 import json
+import logging
 import os
 
 import click
 from white_matter_projections.app.utils import print_color, REQUIRED_PATH
+
+
+L = logging.getLogger(__name__)
 
 
 # This should be in nexus...
@@ -21,6 +26,28 @@ HIERARCHY_URL = 'http://api.brain-map.org/api/v2/structure_graph_download/1.json
 @click.group()
 def cmd():
     '''commands related to Allen Institute'''
+
+
+@cmd.command()
+@click.pass_context
+def download_streamlines(ctx):
+    '''Download as many streamlines as possible used in recipe from AIBS'''
+    from white_matter_projections import streamlines
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    centroids = streamlines.get_connected_centroids(config.flat_map, config.recipe)
+    streamline_csvs = os.path.join(output, 'streamlines')
+    if not os.path.exists(streamline_csvs):
+        L.info('Downlading streamlines to %s', streamline_csvs)
+        os.makedirs(streamline_csvs)
+        missing = streamlines.download_streamlines(centroids, config.hierarchy, streamline_csvs)
+
+        if len(missing):
+            L.info('Missing streamlines: %s', missing)
+
+    csv_paths = glob(os.path.join(streamline_csvs, '*.csv'))
+    metadata, paths = streamlines.convert_csvs(csv_paths, centroids, config.flat_map.center_line_3d)
+    streamlines.save(output, metadata, paths)
 
 
 @cmd.command()
