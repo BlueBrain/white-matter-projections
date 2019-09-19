@@ -31,7 +31,8 @@ setup(
         'requests>=2.19.1',
         'seaborn>=0.8.1',
         'voxcell>=2.4.0',
-        'networkx==2.2'
+        'networkx==2.2',
+        'scipy>=1.2.2'
     ],
     packages=find_packages(),
     classifiers=[

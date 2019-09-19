@@ -1,19 +1,24 @@
 import math
 import os
-import h5py
 import numpy as np
 import pandas as pd
 from bluepy.v2.index import SegmentIndex
-from joblib import parallel_backend
 
 from nose.tools import ok_, eq_
 from white_matter_projections import sampling, utils
 from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
-from utils import (tempdir, gte_,
-                   fake_brain_regions, fake_flat_map,
-                   )
+from utils import (tempdir, fake_brain_regions, fake_flat_map,)
 from mock import patch, Mock
+
+
+def _full_sample_worker_mock(min_xyzs, index_path, voxel_dimensions):
+    df = pd.DataFrame(
+        np.array([[101, 201, 10., 0., 10., 0., 10., 0., 10., 31337], ]),
+        columns=sampling.SEGMENT_COLUMNS)
+
+    df = pd.concat([df for _ in min_xyzs], ignore_index=True, sort=False)
+    return df
 
 
 @patch('white_matter_projections.sampling.synapses')
@@ -50,35 +55,40 @@ def test__full_sample_worker(patch_synapses):
     eq_(sorted(df.columns), sampling.SEGMENT_COLUMNS)
 
 
-def test__full_sample_parallel():
+def test__dilate_region():
+    brain_regions, _ = fake_brain_regions()
+    ret = sampling._dilate_region(brain_regions, [30, ], 1)
+    ok_(30 in ret)
+    # original indices exist
+    eq_(set(zip(*np.nonzero(brain_regions.raw == 30))) - set(zip(*tuple(ret[30].T))), set())
+    eq_(len(ret[30]),
+        4 +  # original column
+        4 +  4 + 4 + 4 + # columns north/south/east/west
+        1) # top
+
+    #dilate the whole region
+    ret = sampling._dilate_region(brain_regions, [30, ], 10)
+    ok_(30 in ret)
+    eq_(len(ret[30]), 5 * 5 * 5)
+
     brain_regions, _ = fake_brain_regions()
     brain_regions.raw[0, 0, 0] = 1
-    index_path = 'fake_index_path'
+    brain_regions.raw[2, 2, 2] = 3
+    brain_regions.raw[0, 1, 0] = 4
+    ids = [1, 3, 4, 30, ]
+    ret = sampling._dilate_region(brain_regions, ids, 1)
+    for id_ in ids:
+        ok_(id_ in ret)
 
-    df = pd.DataFrame(
-        np.array([[101, 201, 10., 0., 10., 0., 10., 0., 10., 31337], ]),
-        columns=sampling.SEGMENT_COLUMNS)
+    # mutual intersection should be zero
+    eq_(len(set.intersection(*[set(zip(*tuple(s))) for s in ret.values()])), 0)
 
-    with patch('white_matter_projections.sampling._full_sample_worker') as mock_fsw:
-        mock_fsw.return_value = df
-        region_id = 1
-        ret = sampling._full_sample_parallel(brain_regions, region_id, index_path, n_jobs=1)
-        eq_(len(ret), np.count_nonzero(brain_regions.raw == region_id))
-
-        region_id = 2
-        nz_count = np.count_nonzero(brain_regions.raw == region_id)
-        ret = sampling._full_sample_parallel(brain_regions, region_id, index_path, n_jobs=1, chunks=nz_count)
-        eq_(len(ret), nz_count)
-
-        region_id = 12345  # does not exist
-        ret = sampling._full_sample_parallel(brain_regions, region_id, index_path, n_jobs=1)
-        ok_(ret is None)
 
 def test_sample_all():
-    population = pd.DataFrame(
-        np.array([(1, 'FRP', 'l1'),
-                  (2, 'FRP', 'l2'),
-                  (30, 'FRP', 'l3')]),
+    population = pd.DataFrame([(1, 'FRP', 'l1'),
+                               (2, 'FRP', 'l2'),
+                               (30, 'FRP', 'l3'),
+                               (30, 'FRP', 'l3')],
         columns=['id', 'region', 'subregion'])
     brain_regions, _ = fake_brain_regions()
 
@@ -95,7 +105,7 @@ def test_sample_all():
         with patch('white_matter_projections.sampling._full_sample_parallel') as mock_fsp:
             mock_fsp.return_value = df
             sampling.sample_all(tmp, index_base, population, brain_regions, side)
-            for l in ('l1', 'l2', 'l3'):
+            for l in ('l2', 'l3'):  # note: 'l1' skipped b/c id doesn't exist
                 ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s_right.feather' % l)))
             eq_(mock_fsp.call_count, 3)
 

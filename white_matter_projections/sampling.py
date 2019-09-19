@@ -6,6 +6,8 @@ from glob import glob
 
 import numpy as np
 import pandas as pd
+from scipy import ndimage
+from scipy.spatial import KDTree
 
 from joblib import Parallel, delayed
 from neurom import NeuriteType
@@ -86,33 +88,62 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
     return df
 
 
-def _full_sample_parallel(brain_regions, region_id, index_path, n_jobs=-2, chunks=None):
-    '''Sample *all* segments of type region_id
-
-    Args:
-        brain_regions(VoxelData): brain regions
-        region_id(int): single region id to sample
-        index_path(str): directory where FLATIndex can find SEGMENT_*
-    '''
-    nz = np.array(np.nonzero(brain_regions.raw == region_id)).T
-    if len(nz) == 0:
-        return None
-
-    positions = brain_regions.indices_to_positions(nz)
-    positions = np.unique(positions, axis=0)
+def _full_sample_parallel(positions, voxel_dimensions, index_path, n_jobs=-2, chunks=None):
     if chunks is None:
         chunks = (len(positions) // 500) + 1
 
     worker = delayed(_full_sample_worker)
     # TODO: check if using multiprocessing backend is faster here
     p = Parallel(n_jobs=n_jobs)
-    df = p(worker(xyzs, index_path, brain_regions.voxel_dimensions)
+    df = p(worker(xyzs, index_path, voxel_dimensions)
            for xyzs in np.array_split(positions, chunks, axis=0))
     df = pd.concat(df, ignore_index=True, sort=False)
     return df
 
 
-def sample_all(output, index_base, population, brain_regions, side):
+def _generate_dilatation_structure(dimension, dilatation_size):
+    """ Create a voxel sphere like binary structure of radius `nb_pixels` """
+    # pylint: disable=assignment-from-no-return
+    output = np.fabs(np.indices([dilatation_size * 2 + 1] * dimension) - dilatation_size)
+    output = np.add.reduce(output, 0)
+    return output <= dilatation_size
+
+
+def _dilate_region(brain_regions, region_ids, dilation_size):
+    '''dilate voxels in `region_ids` by size `dilation_size`'''
+    raw = np.zeros_like(brain_regions.raw, dtype=np.bool)
+    raw[np.isin(brain_regions.raw, list(region_ids))] = True
+
+    L.debug('_dilate_region: start dilation: dilation_size: %d', dilation_size)
+    dilated = ndimage.binary_dilation(
+        raw, _generate_dilatation_structure(brain_regions.ndim, dilation_size))
+    dilated = dilated ^ raw  # only consider dilated voxels for assignment
+
+    # Create a 'shell' around the region; this reduces the target points the
+    # KDTree includes, which is faster for large regions
+    raw = ndimage.distance_transform_cdt(raw) == 1
+
+    # assign each of the dilated voxels to region of the closest point on the shell
+    raw_idx = np.array(np.nonzero(raw)).T
+    dilated_idx = np.array(np.nonzero(dilated)).T
+
+    L.debug('_dilate_region: start assign: shell: %d, dilated: %d',
+            len(raw_idx), len(dilated_idx))
+
+    _, row_ids = KDTree(raw_idx).query(dilated_idx, 1)
+
+    L.debug('_dilate_region: end assign')
+
+    region_idx = brain_regions.raw[tuple(raw_idx[row_ids].T)]
+
+    ret = {region_id: np.vstack((dilated_idx[region_idx == region_id, :],
+                                 np.array(np.nonzero(brain_regions.raw == region_id)).T))
+           for region_id in region_ids}
+
+    return ret
+
+
+def sample_all(output, index_base, population, brain_regions, side, dilation_size=0):
     '''sample all segments per region and side for a population
 
     Args:
@@ -121,33 +152,60 @@ def sample_all(output, index_base, population, brain_regions, side):
         population(population dataframe): with only the target population
         brain_regions(voxcell.VoxelData): tagged regions
         side(str): either 'left' or 'right'
+        dilation_size(int): number of pixels used to dilate each brain sub-regions
 
     Output:
         Feather files written to output/$SAMPLE_PATH/$population_$layer_$side.feather
         containing all the sample segments
+
+    Notes:
+        for dilation: https://en.wikipedia.org/wiki/Dilation_%28morphology%29
     '''
     output = os.path.join(output, SAMPLE_PATH)
     utils.ensure_path(output)
 
-    populations = population[['id', 'region', 'subregion']].values
-    for id_, region, subregion in populations:
+    to_sample = []
+    for row in population.itertuples():
         # if format changes, need to change in: load_all_samples
-        path = os.path.join(output, '%s_%s_%s.feather' % (region, subregion, side))
+        path = os.path.join(output, '%s_%s_%s.feather' % (row.region, row.subregion, side))
         if os.path.exists(path):
-            L.debug('Already sampled %s@%s[%s] (%s), skipping', region, side, subregion, path)
+            L.debug('Already sampled %s@%s[%s] (%s), skipping',
+                    row.region, side, row.subregion, path)
             continue
 
-        L.debug('Sampling %s[%s@%s] -> %s', region, subregion, side, path)
+        to_sample.append((path, row))
 
-        index_path = os.path.join(index_base, region + '@' + side)
+    if dilation_size:
+        indices = _dilate_region(brain_regions, list(population.id), dilation_size)
+    else:
+        indices = {row.id: np.array(np.nonzero(brain_regions.raw == row.id)).T
+                   for _, row in to_sample}
+
+    for path, row in to_sample:
+        L.debug('Sampling %s[%s@%s] -> %s', row.region, row.subregion, side, path)
+
+        index_path = os.path.join(index_base, row.region + '@' + side)
         if not os.path.exists(index_path):
             L.warning('Index %s is missing, skipping: %s[%s@%s]',
-                      index_path, region, subregion, side)
+                      index_path, row.region, row.subregion, side)
             continue
 
-        df = _full_sample_parallel(brain_regions, id_, index_path)
-        if df is not None:
-            utils.write_frame(path, df)
+        if not len(indices[row.id]):
+            L.warning('Region ID %s is missing, skipping: %s[%s@%s]',
+                      index_path, row.region, row.subregion, side)
+            continue
+
+        positions = brain_regions.indices_to_positions(indices[row.id])
+        positions = np.unique(positions, axis=0)
+
+        df = _full_sample_parallel(positions, brain_regions.voxel_dimensions, index_path)
+
+        if df is None:
+            continue
+
+        L.debug('Sampled %s[%s@%s] -> %d', row.region, row.subregion, side, len(df))
+
+        utils.write_frame(path, df)
 
 
 def load_all_samples(path, region_tgt):

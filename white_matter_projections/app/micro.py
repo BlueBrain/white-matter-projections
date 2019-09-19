@@ -52,13 +52,18 @@ def sample_all(ctx, target_population, side):
     from white_matter_projections import sampling
 
     config, output = ctx.obj['config'], ctx.obj['output']
-
-    target_population = target_population
     index_base = config.config['indices']
+    target_population = target_population  # keep linter happy
     population = config.recipe.populations.query('population == @target_population')
+
     brain_regions = config.atlas.load_data('brain_regions')
 
-    sampling.sample_all(output, index_base, population, brain_regions, side)
+    sampling.sample_all(output,
+                        index_base,
+                        population,
+                        brain_regions,
+                        side,
+                        dilation_size=config.volume_dilatation)
 
 
 @cmd.command()

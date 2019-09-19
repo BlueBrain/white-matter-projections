@@ -53,6 +53,11 @@ class Config(object):
         return config
 
     @lazy
+    def volume_dilatation(self):
+        ''' Number of pixels used for the volume dilatation '''
+        return self.config.get("volume_dilatation", 0)
+
+    @lazy
     def circuit(self):
         '''circuit referenced by config'''
         from bluepy.v2.circuit import Circuit
