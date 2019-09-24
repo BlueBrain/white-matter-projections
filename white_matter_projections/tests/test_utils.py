@@ -81,9 +81,9 @@ def test_perform_module_grouping():
     df = pd.DataFrame()
     ret = utils.perform_module_grouping(df, module_grouping)
     eq_(ret.shape, (7, 7))
-    eq_(np.count_nonzero(ret.isna()),  np.product(ret.shape))
+    eq_(np.count_nonzero(ret.isna()), np.product(ret.shape))
 
-    index = columns = 'Region1', 'Region3', 'Region5', 'Region10',  'Region0', 'Region2', 'Region4',
+    index = columns = ('Region1', 'Region3', 'Region5', 'Region10', 'Region0', 'Region2', 'Region4', )
     df = pd.DataFrame(np.arange(49).reshape((7, 7)), index=index, columns=columns)
     ret = utils.perform_module_grouping(df, module_grouping)
     eq_(ret.loc['Group1', 'Region1']['Group1', 'Region1'], 0)
@@ -108,13 +108,13 @@ def test_in_2dtriangle():
                        [0., 0.],
                        [0., 5.],
                        [0., -.00001],
-                      ],)
+                       ],)
 
     vertices = np.array([(0., 0), (10., 0), (0., 10.)])
     ret = utils.in_2dtriangle(vertices, points)
     assert_array_equal(ret, (True, False, True, True, False))
 
-    #wind the opposite way
+    # wind the opposite way
     vertices = np.array([(0., 0), (0., 10.), (10., 0)])
     ret = utils.in_2dtriangle(vertices, points)
     assert_array_equal(ret, (True, False, True, True, False))

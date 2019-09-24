@@ -441,18 +441,19 @@ def get_gids_by_population(populations, get_cells, source_population):
 
     if isinstance(population, pd.DataFrame):
         region_names = set(population.region)
-        layers = set(population.layer)
+        subregion = set(population.subregion)
         population_filter = population.population_filter[0]
     else:
         region_names = {population.region}
-        layers = {population.layer}
+        subregion = {population.subregion}
         population_filter = population.population_filter
 
-    layers = [int(l[1]) for l in layers]
+    #  Due to the cells dataframe contaning numeric layers, need to convert to int
+    subregion = [int(s[0]) for s in subregion]
 
     cells = get_cells(population_filter)
     region_names = _append_side_to_regions(region_names)
-    gids = cells.query('region in @region_names and layer in @layers').index.values
+    gids = cells.query('region in @region_names and layer in @subregions').index.values
     return gids
 
 

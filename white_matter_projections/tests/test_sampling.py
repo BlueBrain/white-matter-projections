@@ -79,7 +79,7 @@ def test_sample_all():
         np.array([(1, 'FRP', 'l1'),
                   (2, 'FRP', 'l2'),
                   (30, 'FRP', 'l3')]),
-        columns=['id', 'region', 'layer'])
+        columns=['id', 'region', 'subregion'])
     brain_regions, _ = fake_brain_regions()
 
     df = pd.DataFrame(
@@ -110,12 +110,12 @@ def test_load_all_samples():
         path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_l1_right.feather')
         df_right = pd.DataFrame(np.array([[0, 0., 10.],
                                           [1, -10, 10.]]),
-                          columns=['tgid', 'segment_z1', 'segment_z2'])
+                                columns=['tgid', 'segment_z1', 'segment_z2'])
         utils.write_frame(path, df_right)
 
         df_left = pd.DataFrame(np.array([[0, 0., -10.],
                                          [1, -10, -10.]]),
-                          columns=['tgid', 'segment_z1', 'segment_z2'])
+                               columns=['tgid', 'segment_z1', 'segment_z2'])
         path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_l1_left.feather')
         utils.write_frame(path, df_left)
 
@@ -233,7 +233,7 @@ def test__subsample_per_source():
     vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
     densities = pd.DataFrame([['l1', 2, 0.145739],
                               ['l1', 2, 0.145739]
-                              ], columns=['layer_tgt', 'id_tgt', 'density'])
+                              ], columns=['subregion_tgt', 'id_tgt', 'density'])
     config = Mock()
     config.flat_map = fake_flat_map()
     config.atlas.load_data.return_value, _ = fake_brain_regions()

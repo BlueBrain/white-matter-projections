@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
 from scipy.spatial.distance import squareform
-from white_matter_projections import hierarchy, utils
+from white_matter_projections import utils
 
 L = logging.getLogger(__name__)
 
@@ -188,11 +188,11 @@ class MacroConnections(object):
             norm_layer_profiles(df): corresponds to 'x' in the docstring
         '''
         hemisphere = hemisphere  # pylint workaround: variable used in query()
-        redundant_columns = ['name', 'index', 'layer', 'region']
+        redundant_columns = ['name', 'index', 'region', 'subregion']
         ret = (self._get_projections(hemisphere=hemisphere)
                .merge(self.layer_profiles, how='left',
-                      left_on=['target_layer_profile_name', 'layer_tgt'],
-                      right_on=['name', 'layer'])
+                      left_on=['target_layer_profile_name', 'subregion_tgt'],
+                      right_on=['name', 'subregion'])
                .merge(norm_layer_profiles.T.reset_index().melt('index'), how='left',
                       left_on=['region_tgt', 'target_layer_profile_name'],
                       right_on=['region', 'index'])
@@ -208,14 +208,14 @@ class MacroConnections(object):
         '''return dataframe with all the densities for all the target regions'''
         projections = self.calculate_densities(norm_layer_profiles, hemisphere)
 
-        regions = sorted(projections.region_tgt.unique())
-        layers = sorted(projections.layer_tgt.unique())
+        regions = np.sort(projections.region_tgt.unique())
+        subregions = np.sort(projections.subregion_tgt.unique())
 
-        ret = pd.DataFrame(index=regions, columns=layers)
+        ret = pd.DataFrame(index=regions, columns=subregions)
         ret.index.name = 'Target Region'
         ret.columns.name = 'Target Layer'
 
-        for (region, layer), df in projections.groupby(['region_tgt', 'layer_tgt']):
+        for (region, layer), df in projections.groupby(['region_tgt', 'subregion_tgt']):
             ret.loc[region][layer] = df.density.sum()
 
         return ret
@@ -228,13 +228,13 @@ class MacroConnections(object):
                        .query('region_tgt == @target_acronym')
                        )
 
-        ret = pd.DataFrame(index=sorted(projections['layer_tgt'].unique()),
+        ret = pd.DataFrame(index=sorted(projections['subregion_tgt'].unique()),
                            columns=sorted(m[0] for m in modules))
         ret.index.name, ret.columns.name = 'Target', 'Source'
 
         for module, regions in modules:
             regions = regions  # pylint workaround: variable used in query()
-            for tgt, df in projections.query('region_src in @regions').groupby('layer_tgt'):
+            for tgt, df in projections.query('region_src in @regions').groupby('subregion_tgt'):
                 ret.loc[tgt][module] = df.density.sum()
         return ret
 
@@ -253,7 +253,7 @@ class MacroConnections(object):
                        )
 
         source = 'source_population'
-        target = 'layer_tgt'
+        target = 'subregion_tgt'
 
         ret = pd.DataFrame(index=sorted(projections[target].unique()),
                            columns=sorted(projections[source].unique()))
@@ -351,13 +351,14 @@ class MacroConnections(object):
         return ret
 
     @classmethod
-    def load_recipe(cls, recipe_yaml, hier, cache_dir=None):
+    def load_recipe(cls, recipe_yaml, hier, cache_dir=None, subregion_translation=None):
         '''load population/projection/p-type recipe
 
         Args:
-
             recipe_yaml(str): the recipe following format, in yaml
-            hier(voxcell.hierarchy.Hierarchy): hierarchy to verify population acronyms against
+            hier(voxcell.Hierarchy): hierarchy to verify population acronyms against
+            cache_dir(str): location to save cached data
+            subregion_translation(dict): subregion alias -> subregion in atlas
 
         Returns:
             instance of MacroConnections
@@ -378,10 +379,15 @@ class MacroConnections(object):
 
         recipe = yaml.load(recipe_yaml, Loader=yaml.FullLoader)
 
-        pop_cat, populations = _parse_populations(recipe['populations'], hier)
+        if subregion_translation is None:
+            subregion_translation = {}
+
+        pop_cat, populations = _parse_populations(recipe['populations'],
+                                                  hier,
+                                                  subregion_translation)
         projections, projections_mapping = _parse_projections(recipe['projections'], pop_cat)
         ptypes, ptypes_interaction_matrix = _parse_ptypes(recipe['p-types'], pop_cat)
-        layer_profiles = _parse_layer_profiles(recipe['layer_profiles'])
+        layer_profiles = _parse_layer_profiles(recipe['layer_profiles'], subregion_translation)
 
         synapse_types = _parse_synapse_types(recipe['synapse_types'])
 
@@ -407,8 +413,12 @@ class MacroConnections(object):
     __str__ = __repr__
 
 
-def _parse_populations(populations, hier):
+def _parse_populations(populations, hier, subregion_translation):
     '''parse_populations
+
+    populations(dict): as loaded from yaml file
+    hier(voxcell.Hierarchy): hierarchy to verify population acronyms against
+    subregion_translation(dict): subregion alias -> subregion in atlas
 
     Returns:
         tuple of:
@@ -417,15 +427,17 @@ def _parse_populations(populations, hier):
                 population: population name
                 region: name of region
                 layer: layer name
-                subregion: name of hierarchy region, including layer
+                acronym: name of region full name, including subregion
                 id: id in hierarchy, -1 if the region/layer combo doesn't exist
-                population_filter: Catogory of 'Empty'/EXC/intratelencephalic or
+                population_filter: Category of 'Empty'/EXC/intratelencephalic or
                 'pyramidal tract'
     '''
     data = []
     for pop in populations:
-        for layer in pop['atlas_region']['subregions']:
-            subregion = hierarchy.get_full_target_acronym(pop['atlas_region']['name'], layer)
+        region = pop['atlas_region']['name']
+        for subregion in pop['atlas_region']['subregions']:
+            subregion = subregion_translation.get(subregion, subregion)
+            acronym = region + subregion
 
             if not pop['filters']:
                 pop_filter = 'Empty'
@@ -437,10 +449,10 @@ def _parse_populations(populations, hier):
                 pop_filter = pop['filters']['synapse_type']
                 assert pop_filter == 'EXC', 'only can consider EXC at the moment'
 
-            row = (pop['name'], pop['atlas_region']['name'], layer, subregion, pop_filter)
+            row = (pop['name'], region, subregion, acronym, pop_filter)
             data.append(row)
 
-    columns = ['population', 'region', 'layer', 'subregion', 'population_filter']
+    columns = ['population', 'region', 'subregion', 'acronym', 'population_filter']
     populations = pd.DataFrame(data, columns=columns)
 
     pop_cat = CategoricalDtype(populations.population.unique())
@@ -448,9 +460,7 @@ def _parse_populations(populations, hier):
 
     populations.population_filter = populations.population_filter.astype('category')
 
-    ids, removed = hierarchy.populate_brain_region_ids(
-        populations[['region', 'layer']], hier)
-    populations['id'] = ids
+    populations['id'], removed = _populate_brain_region_ids(list(populations.acronym), hier)
 
     if removed:
         L.warning('%s are missing from atlas', sorted(removed))
@@ -589,19 +599,20 @@ def _parse_ptypes(ptypes, pop_cat):
     return ptypes, interaction_matrices
 
 
-def _parse_layer_profiles(layer_profiles):
+def _parse_layer_profiles(layer_profiles, subregion_translation):
     '''parse_layer_profiles
 
     Returns:
-        DataFrame with columns: name, layer, relative_density
+        DataFrame with columns: name, subregion, relative_density
     '''
     data = []
     for profile in layer_profiles:
         for densities in profile['relative_densities']:
-            for layer in densities['layers']:
-                data.append((profile['name'], layer, densities['value']))
+            for subregion in densities['layers']:
+                subregion = subregion_translation.get(subregion, subregion)
+                data.append((profile['name'], subregion, densities['value']))
 
-    layer_profiles = pd.DataFrame(data, columns=['name', 'layer', 'relative_density'])
+    layer_profiles = pd.DataFrame(data, columns=['name', 'subregion', 'relative_density'])
     return layer_profiles
 
 
@@ -618,3 +629,30 @@ def _parse_synapse_types(synapse_types):
         - ...
     '''
     return synapse_types
+
+
+def _populate_brain_region_ids(acronyms, hierarchy):
+    '''Populate ids for acronyms
+
+    Args:
+        acronyms(list of str): acronyms to look up
+        hier(voxcell.Hierarchy): hierarchy to verify population region against
+
+    Returns:
+        tuple of array of ids corresponding to rows in df and a dataframe w/ the removed rows
+    '''
+    # XXX: this is slow, speed it up
+    ret, removed = [], []
+    for acronym in acronyms:
+        id_ = hierarchy.collect('acronym', acronym, 'id')
+        if len(id_) == 0:
+            L.warning('Missing region %s', acronym)
+            removed.append(acronym)
+            ret.append(-1)
+        elif len(id_) > 1:
+            L.warning('Too many ids for region %s', acronym)
+            removed.append(acronym)
+            ret.append(-1)
+        else:
+            ret.append(next(iter(id_)))
+    return ret, removed

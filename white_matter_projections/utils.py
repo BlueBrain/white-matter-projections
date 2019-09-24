@@ -75,8 +75,11 @@ class Config(object):
         with open(recipe_path) as fd:
             recipe = fd.read()
 
-        recipe = macro.MacroConnections.load_recipe(recipe, self.hierarchy,
-                                                    cache_dir=self.cache_dir)
+        recipe = macro.MacroConnections.load_recipe(
+            recipe,
+            self.hierarchy,
+            cache_dir=self.cache_dir,
+            subregion_translation=self.subregion_translation)
         return recipe
 
     @lazy
@@ -135,12 +138,17 @@ class Config(object):
                                              config['center_line_3d'])
         return flat_map
 
+    @lazy
+    def subregion_translation(self):
+        '''returns a dict that maps subregion names from recipe to ones in hierarchy'''
+        return self.config.get('subregion_translation', {})
+
     @lru_cache()
     def get_cells(self, population_filter=None):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
         cells = self.circuit.cells.get()
 
-        if population_filter is not None:
+        if population_filter is not None and population_filter == 'Empty':
             categories = self.config['populations_filters'][population_filter]
             categories = categories
             cells = cells.query('mtype in @categories')

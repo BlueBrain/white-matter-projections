@@ -134,7 +134,7 @@ def projection(ctx, projection_name, side):
 
 
 @cmd.command()
-@click.option('-p', '--population', required=True)
+@click.option('-p', '--population', required=True, help='Source Population')
 @click.pass_context
 def allocation_stats(ctx, population):
     '''Based on the allocations created by 'micro allocate', display stats'''

@@ -129,20 +129,20 @@ def sample_all(output, index_base, population, brain_regions, side):
     output = os.path.join(output, SAMPLE_PATH)
     utils.ensure_path(output)
 
-    populations = population[['id', 'region', 'layer']].values
-    for id_, region, layer in populations:
+    populations = population[['id', 'region', 'subregion']].values
+    for id_, region, subregion in populations:
         # if format changes, need to change in: load_all_samples
-        path = os.path.join(output, '%s_%s_%s.feather' % (region, layer, side))
+        path = os.path.join(output, '%s_%s_%s.feather' % (region, subregion, side))
         if os.path.exists(path):
-            L.debug('Already sampled %s@%s[%s] (%s), skipping', region, side, layer, path)
+            L.debug('Already sampled %s@%s[%s] (%s), skipping', region, side, subregion, path)
             continue
 
-        L.debug('Sampling %s[%s@%s] -> %s', region, layer, side, path)
+        L.debug('Sampling %s[%s@%s] -> %s', region, subregion, side, path)
 
         index_path = os.path.join(index_base, region + '@' + side)
         if not os.path.exists(index_path):
             L.warning('Index %s is missing, skipping: %s[%s@%s]',
-                      index_path, region, layer, side)
+                      index_path, region, subregion, side)
             continue
 
         df = _full_sample_parallel(brain_regions, id_, index_path)
@@ -154,7 +154,7 @@ def load_all_samples(path, region_tgt):
     '''load samples for `region_tgt` from `path`, in parallel, separating into left/right'''
     files = glob(os.path.join(path, SAMPLE_PATH, '%s_*.feather' % region_tgt))
     work = []
-    # format is: '%s_%s_%s.feather' % (region, layer, side))
+    # format is: '%s_%s_%s.feather' % (region, subregion, side))
     for file_ in files:
         assert len(os.path.basename(file_).split('_')) == 3
         work.append(delayed(utils.read_frame)(file_))
@@ -168,9 +168,9 @@ def load_all_samples(path, region_tgt):
     ret = collections.defaultdict(dict)
     for file_, segments in zip(files, work):
         file_ = os.path.basename(file_).split('_')
-        layer, side = file_[1], file_[2][:-8]
+        subregion, side = file_[1], file_[2][:-8]
 
-        ret[layer][side] = segments
+        ret[subregion][side] = segments
     return dict(ret)
 
 
@@ -272,7 +272,7 @@ def mask_xyzs_by_vertices(config_path, vertices, xyzs, n_jobs=36, chunk_size=100
 
 
 def calculate_constrained_volume(config, brain_regions, region_id, vertices):
-    '''calculate the total volume in layer 'constrained' by vertices'''
+    '''calculate the total volume in subregion 'constrained' by vertices'''
     idx = np.array(np.nonzero(brain_regions.raw == region_id)).T
     if len(idx) == 0:
         return 0
@@ -292,7 +292,7 @@ def _subsample_per_source(config, target_vertices,
         target_vertices(array): vertices in flat_space to constrain the samples in the target
         flat_space
         projection_name(str): name of projection
-        densities(DataFrame): with columns 'layer_tgt', 'id_tgt', 'density'
+        densities(DataFrame): with columns 'subregion_tgt', 'id_tgt', 'density'
         hemisphere(str): either 'ipsi' or 'contra'
         side(str): either 'left' or 'right'
         segment_samples(dict of 'left'/'right'): full sample of regions's segments
@@ -314,7 +314,7 @@ def _subsample_per_source(config, target_vertices,
     if utils.is_mirror(side, hemisphere):
         mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
 
-    groupby = densities.groupby(['layer_tgt', 'id_tgt']).density.sum().iteritems()
+    groupby = densities.groupby(['subregion_tgt', 'id_tgt']).density.sum().iteritems()
     all_syns, zero_volume = [], []
     for (layer, id_tgt), density in groupby:
         volume = calculate_constrained_volume(config, brain_regions, id_tgt, mirrored_vertices)
@@ -364,12 +364,17 @@ def _pick_syns(syns, count):
 def subsample_per_target(output, config, target_population, side, reverse):
     '''Create feathers files in `output` for projections targeting `target_population`'''
     # pylint: disable=too-many-locals
+    L.debug('Sub-sampling for target: %s', target_population)
     target_population = target_population  # trick pylint since used in pandas query
     densities = (config.recipe.
                  calculate_densities(utils.normalize_layer_profiles(config.region_layer_heights,
                                                                     config.recipe.layer_profiles))
                  .query('target_population == @target_population')
                  )
+
+    if not len(densities):
+        L.warning('Densities are empty, did you select a target?')
+        return
 
     segment_samples = load_all_samples(output, region_tgt=str(densities.region_tgt.unique()[0]))
     gb = list(densities.groupby(

@@ -7,7 +7,9 @@ from pandas.testing import assert_frame_equal
 
 
 def test__parse_populations():
-    pop_cat, populations = macro._parse_populations(RECIPE['populations'], HIER)
+    pop_cat, populations = macro._parse_populations(RECIPE['populations'],
+                                                    HIER,
+                                                    {'l2': '2'})
 
     # check categories
     ok_('POP1_ALL_LAYERS' in pop_cat.categories)
@@ -18,8 +20,8 @@ def test__parse_populations():
     eq_(len(populations), 26)
     eq_(len(populations.query('population == "POP1_ALL_LAYERS"')), 6)
     SUB_POP4_L23 = populations.query('population == "SUB_POP4_L23"')
-    eq_(tuple(SUB_POP4_L23[['region', 'layer', 'id']].values[0]),
-        ('FRP', 'l2', 666))
+    eq_(tuple(SUB_POP4_L23[['region', 'subregion', 'id']].values[0]),
+        ('FRP', '2', 666))
     eq_(populations.population_filter.nunique(), 3)
 
     eq_(dict(populations.population_filter.value_counts()),
@@ -42,9 +44,18 @@ def test__parse_ptypes():
 
 
 def test__parse_layer_profiles():
-    layer_profiles = macro._parse_layer_profiles(RECIPE['layer_profiles'])
+    subregion_translation = {'l1': '1',
+                             'l23': '23',
+                             'l4': '4',
+                             'l5': '5',
+                             # note: 6a/b missing, not replaced
+                             }
+    layer_profiles = macro._parse_layer_profiles(RECIPE['layer_profiles'],
+                                                 subregion_translation)
     eq_(len(layer_profiles.name.unique()), 2)
-    eq_(len(layer_profiles.layer.unique()), 6)
+    eq_(len(layer_profiles.subregion.unique()), 6)
+    eq_(sorted(layer_profiles.subregion.unique()),
+        ['1', '23', '4', '5', 'l6a', 'l6b'])
 
 
 def test_MacroConnections():
@@ -97,7 +108,18 @@ def test_MacroConnections_serialization():
         assert_frame_equal(recipe.layer_profiles, recipe_cached.layer_profiles)
         eq_(recipe.synapse_types, recipe_cached.synapse_types)
 
-    #_get_projections
-    #_get_connection_map
-    #_calculate_densities
-    #get_target_region_density_modules
+def test_populate_brain_region_ids():
+    ids, removed = macro._populate_brain_region_ids([], HIER)
+    eq_(ids, [])
+    eq_(removed, [])
+
+    acronym = ['FAKE', 'FRP1']
+    ids, removed = macro._populate_brain_region_ids(acronym, HIER)
+    eq_(ids, [-1, 68])
+    eq_(removed, ['FAKE'])
+
+#TODO:
+#_get_projections
+#_get_connection_map
+#_calculate_densities
+#get_target_region_density_modules
