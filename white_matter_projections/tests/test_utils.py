@@ -91,8 +91,22 @@ def test_perform_module_grouping():
 
 
 def test_get_region_layer_to_id():
-    ret = utils.get_region_layer_to_id(test_utils.HIER, 'ECT', [2, 3, 4])
+    ret = utils.get_region_layer_to_id(test_utils.REGION_MAP,
+                                       'ECT',
+                                       [2, 3, 4],
+                                       '{region};{subregion}'
+                                       )
     eq_(ret, {2: 426, 3: 427, 4: 428})
+
+
+
+def test_region_subregion_to_id():
+    eq_(utils.region_subregion_to_id(test_utils.REGION_MAP, 'FA', 'KE', '{region}_{subregion}'),
+        -1)
+    eq_(utils.region_subregion_to_id(test_utils.REGION_MAP, 'FRP', '1', '{region}_l{subregion}'),
+        68)
+    eq_(utils.region_subregion_to_id(test_utils.REGION_MAP, 'ECT', '1', '{region};{subregion}'),
+        836)
 
 
 def test_mirror_vertices_y():
@@ -139,8 +153,8 @@ def test_population2region():
 
 #def test_is_mirror():
 #    ok_(False)
-#
-#
+
+
 def test_find_executable():
     ok_('bin/sh' in utils.find_executable('sh'))
     eq_(None, utils.find_executable('a_fake_executable_which_does_not_exist'))

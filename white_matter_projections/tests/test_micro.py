@@ -4,10 +4,11 @@ import itertools as it
 import numpy as np
 import pandas as pd
 
+import yaml
 from nose.tools import ok_, eq_, raises
-from white_matter_projections import micro, utils
+from white_matter_projections import macro, micro, utils as wmp_utils
 from numpy.testing import assert_allclose, assert_array_equal
-from utils import tempdir, gte_
+import utils
 
 
 def fake_allocations():
@@ -43,7 +44,7 @@ def compare_allocations(ret):
 
 def test_save_load_allocations():
     allocations = fake_allocations()
-    with tempdir('test_serialize_allocations') as tmp:
+    with utils.tempdir('test_serialize_allocations') as tmp:
         name = os.path.join(tmp, 'allocations.h5')
         micro.save_allocations(name, allocations)
         ret = micro.load_allocations(name, projections_mapping=None)
@@ -57,7 +58,7 @@ def test_save_load_allocations():
 def test_serialize_allocations():
     allocations = fake_allocations()
 
-    with tempdir('test_serialize_allocations') as tmp:
+    with utils.tempdir('test_serialize_allocations') as tmp:
         name = os.path.join(tmp, 'allocations.h5')
         with h5py.File(name, 'w') as h5:
             micro._serialize_allocations(h5, allocations)
@@ -178,13 +179,35 @@ def test__greedy_gids_allocation_from_counts():
     #gte_(overlap_counts[('proj1', 'proj2')], len(set(ret['proj1']) & set(ret['proj2'])))
 
 
-# def test_get_gids_py_population():
-#    populations = ''
-#    cells = ''
-#    source_population = ''
-#    ret = utils.get_gids_py_population(populations, cells, source_population)
-#    import ipdb; ipdb.set_trace()  # XXX BREAKPOINT
-#    pass
+def test_get_gids_by_population():
+    populations = yaml.load('''\
+- name: POP1_ALL_LAYERS
+  atlas_region:
+      name: ECT
+      subregions: [l1, l2, l3, l4, l5, l6]
+  filters: []
+''', Loader=yaml.FullLoader)
+    _, populations = macro._parse_populations(populations,
+                                              utils.REGION_MAP,
+                                              utils.SUBREGION_TRANSLATION,
+                                              utils.REGION_SUBREGION_FORMAT)
+
+    def cells(_):
+        return pd.DataFrame({'layer': [1, 1, 2, 3, ],
+                             'region': ['ECT', 'ECT', 'FRP', 'ECT', ],
+                             })
+
+    source_population = 'POP1_ALL_LAYERS'
+    ret = micro.get_gids_by_population(populations, cells, source_population)
+    assert_array_equal(ret, [0, 1, 3])
+
+    def cells(_):
+        return pd.DataFrame({'layer': [1, 1, 2, 3, ],
+                             'region': ['ECT@left', 'ECT@right', 'FRP@left', 'ECT@right', ],
+                             })
+    source_population = 'POP1_ALL_LAYERS'
+    ret = micro.get_gids_by_population(populations, cells, source_population)
+    assert_array_equal(ret, [0, 1, 3])
 
 # def test_allocate_projections():
 #    micro.allocate_projections(recipe, cells)
@@ -423,13 +446,13 @@ def test__calculate_delay_streamline():
                               (65., 0., 0.,),
                               (75., 0., 0.,),
                               (85., 0., 0.,), ],
-                             columns=utils.XYZ,
+                             columns=wmp_utils.XYZ,
                              index=[1, 2, 3, 4])
     syns = pd.DataFrame([(1, 1., 0., 0.),
                          (2, 2., 0., 0.),
                          (2, 3., 0., 0.),
                          (4, 4., 0., 0.), ],
-                        columns=['sgid', ] + utils.XYZ)
+                        columns=['sgid', ] + wmp_utils.XYZ)
     columns = ['path_row', 'length', 'start_x', 'start_y', 'start_z', 'end_x', 'end_y', 'end_z', ]
     streamline_metadata = pd.DataFrame([(3, 3000., 0., 0., 0., 3., 0., 0.),
                                         (4, 4000., 1., 0., 0., 4., 0., 0.),
@@ -456,13 +479,13 @@ def test__calculate_delay_direct():
                               (65., 0., 0.,),
                               (75., 0., 0.,),
                               (85., 0., 0.,), ],
-                             columns=utils.XYZ,
+                             columns=wmp_utils.XYZ,
                              index=[1, 2, 3, 4])
     syns = pd.DataFrame([(1, 1., 0., 0.),
                          (2, 2., 0., 0.),
                          (2, 3., 0., 0.),
                          (4, 4., 0., 0.), ],
-                        columns=['sgid', ] + utils.XYZ)
+                        columns=['sgid', ] + wmp_utils.XYZ)
 
     delay = micro._calculate_delay_direct(src_cells, syns, conduction_velocity)
     assert_allclose(delay, np.array([54, 63, 62, 81, ]) / 10.)
@@ -471,5 +494,5 @@ def test__calculate_delay_direct():
 #    config
 #    allocations
 #    side
-#    with tempdir('test_assignment') as output:
+#    with utils.tempdir('test_assignment') as output:
 #        micro.assignment(output, config, allocations, side)

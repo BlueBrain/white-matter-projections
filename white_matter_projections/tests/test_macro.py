@@ -1,15 +1,20 @@
 import pandas as pd
 from nose.tools import ok_, eq_
 from white_matter_projections import macro, utils
-from utils import POP_CAT, RECIPE, RECIPE_TXT, HIER, tempdir
+from utils import (POP_CAT, RECIPE, RECIPE_TXT, REGION_MAP,
+                   REGION_SUBREGION_FORMAT,
+                   SUBREGION_TRANSLATION, tempdir,
+                   )
 from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
 
 
 def test__parse_populations():
     pop_cat, populations = macro._parse_populations(RECIPE['populations'],
-                                                    HIER,
-                                                    {'l2': '2'})
+                                                    REGION_MAP,
+                                                    SUBREGION_TRANSLATION,
+                                                    REGION_SUBREGION_FORMAT
+                                                    )
 
     # check categories
     ok_('POP1_ALL_LAYERS' in pop_cat.categories)
@@ -59,7 +64,10 @@ def test__parse_layer_profiles():
 
 
 def test_MacroConnections():
-    recipe = macro.MacroConnections.load_recipe(RECIPE_TXT, HIER)
+    recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
+                                                REGION_MAP,
+                                                subregion_translation=SUBREGION_TRANSLATION,
+                                                region_subregion_format=REGION_SUBREGION_FORMAT)
     ipsi = recipe.get_connection_density_map('ipsi')
     assert_allclose(ipsi.loc['ECT']['ACAd'], 0.26407104)
     eq_(ipsi.loc['MOs']['ACAd'], 0.)
@@ -75,20 +83,23 @@ def test_MacroConnections():
     norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
 
     ipsi = recipe.get_target_region_density(norm_layer_profiles, 'ipsi')
-    assert_allclose(ipsi.loc['ACAd']['l1'], 0.13528667)
+    assert_allclose(ipsi.loc['ACAd']['1'], 0.13528667)
 
     ret = recipe.get_target_region_density_sources(norm_layer_profiles, 'FRP')
-    assert_allclose(ret.loc['l1']['POP2_ALL_LAYERS'], 0.08996559)
+    assert_allclose(ret.loc['1']['POP2_ALL_LAYERS'], 0.08996559)
 
     modules = [('TopLevel', ['FRP', 'MOs', ]),
                ]
     ret = recipe.get_target_region_density_modules(norm_layer_profiles, 'FRP', modules)
     ok_(isinstance(ret, pd.DataFrame))
-    assert_allclose(ret.loc['l1', 'TopLevel'], 0.08996559651848632)
+    assert_allclose(ret.loc['1', 'TopLevel'], 0.08996559651848632)
 
 
 def test_MacroConnections_repr():
-    recipe = macro.MacroConnections.load_recipe(RECIPE_TXT, HIER)
+    recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
+                                                REGION_MAP,
+                                                subregion_translation=SUBREGION_TRANSLATION,
+                                                region_subregion_format=REGION_SUBREGION_FORMAT)
     out = str(recipe)
     ok_('MacroConnections' in out)
     ok_('populations: 26' in out)
@@ -96,9 +107,14 @@ def test_MacroConnections_repr():
 
 def test_MacroConnections_serialization():
     with tempdir('test_MacroConnections_serialization') as tmp:
-        recipe = macro.MacroConnections.load_recipe(RECIPE_TXT, HIER, cache_dir=tmp)
+        recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
+                                                    REGION_MAP,
+                                                    cache_dir=tmp,
+                                                    subregion_translation=SUBREGION_TRANSLATION,
+                                                    region_subregion_format=REGION_SUBREGION_FORMAT)
 
-        recipe_cached = macro.MacroConnections.load_recipe(RECIPE_TXT, HIER, cache_dir=tmp)
+
+        recipe_cached = macro.MacroConnections.load_recipe(RECIPE_TXT, REGION_MAP, cache_dir=tmp)
 
         assert_frame_equal(recipe.populations, recipe_cached.populations)
         assert_frame_equal(recipe.projections, recipe_cached.projections)
@@ -107,16 +123,6 @@ def test_MacroConnections_serialization():
         #ptypes_interaction_matrix
         assert_frame_equal(recipe.layer_profiles, recipe_cached.layer_profiles)
         eq_(recipe.synapse_types, recipe_cached.synapse_types)
-
-def test_populate_brain_region_ids():
-    ids, removed = macro._populate_brain_region_ids([], HIER)
-    eq_(ids, [])
-    eq_(removed, [])
-
-    acronym = ['FAKE', 'FRP1']
-    ids, removed = macro._populate_brain_region_ids(acronym, HIER)
-    eq_(ids, [-1, 68])
-    eq_(removed, ['FAKE'])
 
 #TODO:
 #_get_projections

@@ -256,7 +256,7 @@ def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids)
 
 
 def allocate_gids_to_targets(
-    targets, recipe_interaction_matrix, gids, algorithm=Algorithm.STOCHASTIC_TREE_MODEL
+    targets, recipe_interaction_matrix, gids, algorithm=Algorithm.GREEDY
 ):
     '''Allocation of gids to target groups
 
@@ -423,7 +423,7 @@ def _ptype_to_counts(cell_count, ptype, interactions):
     return total_counts, overlap_counts
 
 
-def _append_side_to_regions(regions):
+def _append_side_to_regions_hack_ncx176(regions):
     '''due to hemisphere not being encoded in atlas, MVD had hemisphere appended
 
     # XXX: NCX-176 hack
@@ -452,8 +452,12 @@ def get_gids_by_population(populations, get_cells, source_population):
     subregion = [int(s[0]) for s in subregion]
 
     cells = get_cells(population_filter)
-    region_names = _append_side_to_regions(region_names)
-    gids = cells.query('region in @region_names and layer in @subregions').index.values
+
+    if len(cells) and (cells.iloc[0].region.endswith('left') or
+                       cells.iloc[0].region.endswith('right')):
+        region_names = _append_side_to_regions_hack_ncx176(region_names)
+
+    gids = cells.query('region in @region_names and layer in @subregion').index.values
     return gids
 
 
@@ -478,12 +482,16 @@ def allocate_projections(recipe, get_cells):
             skipped_populations.append(source_population)
             continue
 
-        L.info('Allocating for source population: %s', source_population)
+        L.info('Allocating for source population: %s...', source_population)
 
         gids = get_gids_by_population(recipe.populations, get_cells, source_population)
         interaction_matrix = recipe.ptypes_interaction_matrix.get(source_population, None)
 
         ret[source_population] = allocate_gids_to_targets(ptype, interaction_matrix, gids)
+
+        L.info('... has %d gids, %d used, %0.3f',
+               len(gids), len(ret[source_population]),
+               len(ret[source_population]) / float(len(gids)))
 
     if skipped_populations:
         L.warning('Skipping populations because empty p-types: %s', sorted(skipped_populations))

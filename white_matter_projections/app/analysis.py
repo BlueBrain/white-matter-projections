@@ -29,7 +29,7 @@ def cmd(ctx, config, output):
 @cmd.command()
 @click.pass_context
 def flat_map(ctx):
-    '''Plot the source locations, after allocation, but before used'''
+    '''Plot flat map'''
     from white_matter_projections import display
     config, output = ctx.obj['config'], ctx.obj['output']
 

@@ -29,8 +29,8 @@ STREAMLINES_NAME = 'streamlines'
 
 
 def get_region_centroid(flat_map, region, side):
-    '''using flat_map.{brain_regions, hierarchy}, find the centroid of `region` in `side`'''
-    ids = list(flat_map.hierarchy.collect('acronym', region, 'id'))
+    '''using flat_map.{brain_regions, region_map}, find the centroid of `region` in `side`'''
+    ids = list(flat_map.region_map.find(region, 'acronym', with_descendants=True))
     center_line = int(flat_map.center_line_3d / flat_map.brain_regions.shape[Z])
 
     if side == 'right':
@@ -186,7 +186,7 @@ def download_streamline(source_region, source_region_id, target_region, seed):
     return req.text
 
 
-def download_streamlines(centroids, hierarchy, output_path, sleep_time=0.5):
+def download_streamlines(centroids, region_map, output_path, sleep_time=0.5):
     '''download streamlines from AIBS
 
     logging.basicConfig(level=logging.DEBUG)
@@ -196,7 +196,7 @@ def download_streamlines(centroids, hierarchy, output_path, sleep_time=0.5):
 
     centroids = sl.get_connected_centroids(config.flat_map, config.recipe)
 
-    missing = sl.download_streamlines(centroids, hierarchy, output_path='streamlines')
+    missing = sl.download_streamlines(centroids, region_map, output_path='streamlines')
     '''
     missing = []
     columns = ['source_region', 'target_region',
@@ -220,7 +220,7 @@ def download_streamlines(centroids, hierarchy, output_path, sleep_time=0.5):
         # throttle the request rate, to be a good citizen
         time.sleep(sleep_time)
 
-        source_region_id = hierarchy.find('acronym', source_region)[0].data['id']
+        source_region_id = next(iter(region_map.find(source_region, 'acronym')))
 
         text = download_streamline(source_region, source_region_id, target_region, seed)
         if text is not None:

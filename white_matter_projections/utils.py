@@ -77,9 +77,10 @@ class Config(object):
 
         recipe = macro.MacroConnections.load_recipe(
             recipe,
-            self.hierarchy,
+            self.region_map,
             cache_dir=self.cache_dir,
-            subregion_translation=self.subregion_translation)
+            subregion_translation=self.subregion_translation,
+            region_subregion_format=self.region_subregion_format)
         return recipe
 
     @lazy
@@ -97,14 +98,14 @@ class Config(object):
         return path
 
     @lazy
-    def hierarchy(self):
+    def region_map(self):
         '''heirarchy referenced via atlas in config'''
         if 'hierarchy' in self.config:
             path = self._relative_to_config(self.config_path, self.config['hierarchy'])
-            hier = voxcell.hierarchy.Hierarchy.load_json(path)
+            ret = voxcell.region_map.RegionMap.load_json(path)
         else:
-            hier = self.atlas.load_hierarchy()
-        return hier
+            ret = self.atlas.load_region_map()
+        return ret
 
     @lazy
     def region_layer_heights(self):
@@ -120,7 +121,7 @@ class Config(object):
                 layer_heights = json.load(fd)
         else:
             layer_heights = calculate_region_layer_heights(
-                self.atlas, self.hierarchy, self.regions)
+                self.atlas, self.region_map, self.regions)
             with open(path, 'w') as fd:
                 json.dump(layer_heights, fd)
 
@@ -143,12 +144,17 @@ class Config(object):
         '''returns a dict that maps subregion names from recipe to ones in hierarchy'''
         return self.config.get('subregion_translation', {})
 
+    @lazy
+    def region_subregion_format(self):
+        '''format string describing the region/subregion -> acronym conversion'''
+        return self.config.get('region_subregion_format', '{region}_{subregion}')
+
     @lru_cache()
     def get_cells(self, population_filter=None):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
         cells = self.circuit.cells.get()
 
-        if population_filter is not None and population_filter == 'Empty':
+        if population_filter is not None and population_filter != 'Empty':
             categories = self.config['populations_filters'][population_filter]
             categories = categories
             cells = cells.query('mtype in @categories')
@@ -167,7 +173,7 @@ class Config(object):
         return path
 
 
-def calculate_region_layer_heights(atlas, hierarchy, regions):
+def calculate_region_layer_heights(atlas, region_map, regions):
     '''find region layer heights for layers 1 - 6'''
     brain_regions = atlas.load_data('brain_regions')
 
@@ -175,7 +181,7 @@ def calculate_region_layer_heights(atlas, hierarchy, regions):
 
     thicknesses = collections.defaultdict(dict)
     for region in regions:
-        ids = list(hierarchy.collect('acronym', region, 'id'))
+        ids = region_map.find(region, 'acronym', 'id', with_descendants=True)
         mask = np.isin(brain_regions.raw, list(ids))
         for layer in range(1, 7):
             ph = phs[layer - 1].raw[mask]
@@ -240,22 +246,41 @@ def normalize_layer_profiles(layer_heights, profiles):
     return ret
 
 
-def get_region_layer_to_id(hier, region, layers):
-    '''map `region` name and `layers` to to ids based on `hier`
+def get_region_layer_to_id(region_map, region, layers, format_string):
+    '''map `region` name and `layers` to to ids based on `region_map`
 
-    an ID of zero means it was not found
+    an ID of -1 means it was not found
     '''
-    ret = {}
-    for i in layers:
-        ids_ = hier.collect('acronym', '%s%d' % (region, i), 'id')
-        if len(ids_) == 0:
-            ret[i] = 0
-        elif len(ids_) == 1:
-            ret[i] = next(iter(ids_))
-        else:
-            L.warning('Got more than one id for region: %s, layer: %d', region, i)
-            ret[i] = 0
-    return ret
+    return {l: region_subregion_to_id(region_map, region, l, format_string)
+            for l in layers}
+
+
+def region_subregion_to_id(region_map, region, subregion, format_string):
+    '''Populate ids for acronyms
+
+    Args:
+        region_map(voxcell.RegionMap): hierarchy to verify population region against
+        region(str): region to lookup
+        subregion(str/num): subregion
+        format_string(str): passed to format() to join region and subregion
+        ex: '{region}_{subregion}'
+
+    Returns:
+        tuple of array of ids corresponding to rows in df and a dataframe w/ the removed rows
+    '''
+    acronym = format_string.format(region=region, subregion=subregion)
+    id_ = region_map.find(acronym, 'acronym', with_descendants=True)
+
+    if len(id_) == 0:
+        L.warning('Missing region %s, subregion: %s: (%s)',
+                  region, subregion, acronym)
+        return -1
+    elif len(id_) > 1:
+        L.warning('Too many ids for region %s, subregion: %s: (%s)',
+                  region, subregion, acronym)
+        return -1
+
+    return next(iter(id_))
 
 
 def ensure_path(path):

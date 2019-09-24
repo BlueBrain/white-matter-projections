@@ -10,25 +10,25 @@ L = logging.getLogger(__name__)
 
 
 class FlatMap(object):
-    '''Holds flat map, and related hierarchy and brain_regions'''
+    '''Holds flat map, and related region_map and brain_regions'''
     def __init__(self,
                  flat_map,
                  brain_regions,
-                 hierarchy,
+                 region_map,
                  center_line_2d, center_line_3d):
         '''init
 
         Args:
             flat_map(VoxelData): mapping of each voxel in 3D to a 2D pixel location
             brain_regions(VoxelData): brain regions dataset at the same resolution as the flatmap
-            hierarchy(voxcell.Hierarchy): associated with brain_regions
+            region_map(voxcell.region_map): associated with brain_regions
             center_line_2d(float): defines the line separating the hemispheres in the flat map
             center_line_3d(float): defines the line separating the hemispheres in the brain_regions,
             in world coordiates
         '''
         self.flat_map = flat_map
         self.brain_regions = brain_regions
-        self.hierarchy = hierarchy
+        self.region_map = region_map
         self.center_line_2d = center_line_2d
         self.center_line_3d = center_line_3d
 
@@ -45,9 +45,9 @@ class FlatMap(object):
         '''load the flat_mapping from paths'''
         flat_map = voxcell.VoxelData.load_nrrd(flat_map_path)
         brain_regions = voxcell.VoxelData.load_nrrd(brain_regions_path)
-        hier = voxcell.hierarchy.Hierarchy.load_json(hierarchy_path)
+        region_map = voxcell.region_map.RegionMap.load_json(hierarchy_path)
 
-        return cls(flat_map, brain_regions, hier, center_line_2d, center_line_3d)
+        return cls(flat_map, brain_regions, region_map, center_line_2d, center_line_3d)
 
     def make_flat_id_region_map(self, regions):
         '''find most popular *parent* region IDs for each flat_map value, based on path in voxels
@@ -63,12 +63,14 @@ class FlatMap(object):
                            'flat_y': self.flat_map.raw[self.flat_idx, 1],
                            })
 
-        region2id = pd.DataFrame([(region, self.hierarchy.find('acronym', region)[0].data['id'])
-                                  for region in regions],
-                                 columns=['subregion', 'parent_region_id', ]).set_index('subregion')
+        region2id = pd.DataFrame(
+            [(region, next(iter(self.region_map.find(region, 'acronym'))))
+             for region in regions],
+            columns=['subregion', 'parent_region_id', ]).set_index('subregion')
         parent_ids = (pd.DataFrame([(id_, region)
                                     for region in regions
-                                    for id_ in self.hierarchy.collect('acronym', region, 'id')],
+                                    for id_ in self.region_map.find(region, 'acronym',
+                                                                    with_descendants=True)],
                                    columns=['id', 'parent_region']).set_index('id')
                       .join(region2id, on='parent_region')
                       )

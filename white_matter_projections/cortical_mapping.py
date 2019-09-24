@@ -66,9 +66,9 @@ class CorticalMapParameters(object):
         with h5py.File(self.cortical_map_path, 'r') as h5:
             return h5['paths'][:]
 
-    def load_hierarchy(self):
+    def load_region_map(self):
         '''load the hierarchy'''
-        return voxcell.hierarchy.Hierarchy.load_json(self.hierarchy_path)
+        return voxcell.RegionMap.load_json(self.hierarchy_path)
 
     def load_brain_regions(self):
         '''load the brain_regions'''
@@ -169,11 +169,10 @@ def _voxel2flat_worker(cortical_map_paths, regions, path_fits, locs):
     brain_regions = cortical_map_paths.load_brain_regions()
     center_line_3d = cortical_map_paths.center_line_3d / brain_regions.voxel_dimensions[Z]
 
+    region_map = cortical_map_paths.load_region_map()
     id_to_top_region = {id_: region
                         for region in regions
-                        for id_ in cortical_map_paths.load_hierarchy().collect('acronym',
-                                                                               region,
-                                                                               'id')}
+                        for id_ in region_map.find(region, 'acronym', with_descendants=True)}
     id_to_top_region = pd.DataFrame.from_dict(id_to_top_region,
                                               orient='index',
                                               columns=['region', ])
@@ -299,7 +298,8 @@ def create_cortical_to_flatmap(cortical_map_paths,
                                chunks=None):
     '''get the full voxel to flat mapping of `regions`'''
 
-    wanted_ids = {region: cortical_map_paths.load_hierarchy().collect('acronym', region, 'id')
+    region_map = cortical_map_paths.load_region_map()
+    wanted_ids = {region: region_map.find(region, 'acronym', with_descendants=True)
                   for region in regions}
 
     brain_regions = cortical_map_paths.load_brain_regions()

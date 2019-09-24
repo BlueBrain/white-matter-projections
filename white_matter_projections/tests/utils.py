@@ -4,10 +4,9 @@ import tempfile
 import yaml
 
 import numpy as np
+import voxcell
 from contextlib import contextmanager
 from pandas.api.types import CategoricalDtype
-from voxcell.hierarchy import Hierarchy
-from voxcell.voxel_data import VoxelData
 
 
 BASEDIR = os.path.dirname(__file__)
@@ -15,6 +14,8 @@ DATADIR = os.path.join(BASEDIR, 'data')
 with open(os.path.join(DATADIR, 'recipe.yaml')) as fd:
     RECIPE_TXT = fd.read()
 RECIPE = yaml.load(RECIPE_TXT, Loader=yaml.FullLoader)
+SUBREGION_TRANSLATION = {'l%d' % i: str(i) for i in range(1, 7)}
+REGION_SUBREGION_FORMAT = '@{region}(?:_l|;|){subregion}'
 
 POP_CAT = CategoricalDtype(categories=['POP1_ALL_LAYERS',
                                        'POP2_ALL_LAYERS',
@@ -31,23 +32,23 @@ HIER_DICT = {"id": 65535,
                   "acronym": "ECT",
                   "name": "Ectorhinal area",
                   "children": [
-                      {"id": 836, "acronym": "ECT1", "name": "Ectorhinal area/Layer 1"},
-                      {"id": 426, "acronym": "ECT2", "name": "Ectorhinal area/Layer 2"},
-                      {"id": 427, "acronym": "ECT3", "name": "Ectorhinal area/Layer 3"},
-                      {"id": 428, "acronym": "ECT4", "name": "Ectorhinal area/Layer 4"},
-                      {"id": 988, "acronym": "ECT5", "name": "Ectorhinal area/Layer 5"},
-                      {"id": 977, "acronym": "ECT6", "name": "Ectorhinal area/Layer 6"}
+                      {"id": 836, "acronym": "ECT;1", "name": "Ectorhinal area/Layer 1"},
+                      {"id": 426, "acronym": "ECT;2", "name": "Ectorhinal area/Layer 2"},
+                      {"id": 427, "acronym": "ECT;3", "name": "Ectorhinal area/Layer 3"},
+                      {"id": 428, "acronym": "ECT;4", "name": "Ectorhinal area/Layer 4"},
+                      {"id": 988, "acronym": "ECT;5", "name": "Ectorhinal area/Layer 5"},
+                      {"id": 977, "acronym": "ECT;6", "name": "Ectorhinal area/Layer 6"}
                   ]},
                  {"id": 184,
                   "acronym": "FRP",
                   "name": "Frontal pole, cerebral cortex",
                   "children": [
-                      {"id": 68, "acronym": "FRP1", "name": "Frontal pole, layer 1"},
-                      {"id": 666, "acronym": "FRP2", "name": "Frontal pole, layer 2"},
-                      {"id": 667, "acronym": "FRP3", "name": "Frontal pole, layer 3"},
-                      {"id": 526322264, "acronym": "FRP4", "name": "Frontal pole, layer 4"},
-                      {"id": 526157192, "acronym": "FRP5", "name": "Frontal pole, layer 5"},
-                      {"id": 526157196, "acronym": "FRP6", "name": "Frontal pole, layer 6"}
+                      {"id": 68, "acronym": "FRP_l1", "name": "Frontal pole, layer 1"},
+                      {"id": 666, "acronym": "FRP_l2", "name": "Frontal pole, layer 2"},
+                      {"id": 667, "acronym": "FRP_l3", "name": "Frontal pole, layer 3"},
+                      {"id": 526322264, "acronym": "FRP_l4", "name": "Frontal pole, layer 4"},
+                      {"id": 526157192, "acronym": "FRP_l5", "name": "Frontal pole, layer 5"},
+                      {"id": 526157196, "acronym": "FRP_l6", "name": "Frontal pole, layer 6"}
                   ]},
                  {"name": "Anterior cingulate area, dorsal part",
                   "id": 39,
@@ -72,7 +73,7 @@ HIER_DICT = {"id": 65535,
                       {"name": "Secondary motor area, layer 6", "id": 21021, "acronym": "MOs6"}
                   ]}
 ]}
-HIER = Hierarchy(HIER_DICT)
+REGION_MAP = voxcell.RegionMap.from_dict(HIER_DICT)
 
 
 def get_config():
@@ -98,9 +99,9 @@ def fake_brain_regions():
     raw = np.zeros((5, 5, 5), dtype=np.int)
     raw[1, :, 0:2] = 2
     raw[2, :4, 2:3] = 30
-    brain_regions = VoxelData(raw, np.ones(3), offset=np.zeros(3))
+    brain_regions = voxcell.VoxelData(raw, np.ones(3), offset=np.zeros(3))
 
-    hierarchy = Hierarchy(
+    region_map = voxcell.RegionMap.from_dict(
         {'id': 1, 'acronym': 'one',
          'children': [
              {'id': 2, 'acronym': 'two', 'children': []},
@@ -110,16 +111,16 @@ def fake_brain_regions():
          ]},
     )
 
-    return brain_regions, hierarchy
+    return brain_regions, region_map
 
 
 class CorticalMap(object):
     def __init__(self, paths, view_lookup,
-                 hierarchy, brain_regions,
+                 region_map, brain_regions,
                  center_line_2d, center_line_3d):
         self.paths = paths
         self.view_lookup = view_lookup
-        self.hierarchy = hierarchy
+        self.region_map = region_map
         self.brain_regions = brain_regions
         self.center_line_2d = center_line_2d
         self.center_line_3d = center_line_3d
@@ -130,15 +131,15 @@ class CorticalMap(object):
     def load_cortical_paths(self):
         return self.paths
 
-    def load_hierarchy(self):
-        return self.hierarchy
+    def load_region_map(self):
+        return self.region_map
 
     def load_brain_regions(self):
         return self.brain_regions
 
     @classmethod
     def fake_cortical_map(cls):
-        brain_regions, hierarchy = fake_brain_regions()
+        brain_regions, region_map = fake_brain_regions()
 
         view_lookup = -1 * np.ones((5, 5), dtype=int)
         view_lookup[1, 0] = 0
@@ -153,22 +154,22 @@ class CorticalMap(object):
         center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape + brain_regions.offset) / 2.
         center_line_3d = center_line_3d[2]
         return cls(paths, view_lookup,
-                   hierarchy, brain_regions,
+                   region_map, brain_regions,
                    center_line_2d, center_line_3d)
 
 
 def fake_flat_map():
     from white_matter_projections import flat_mapping
-    flat_map = VoxelData.load_nrrd(os.path.join(DATADIR, '5x5x5_flat_map.nrrd'))
+    flat_map = voxcell.VoxelData.load_nrrd(os.path.join(DATADIR, '5x5x5_flat_map.nrrd'))
 
-    brain_regions, hierarchy = fake_brain_regions()
+    brain_regions, region_map = fake_brain_regions()
     center_line_2d = 2.5
     center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape +
                       brain_regions.offset) / 2.
 
     return flat_mapping.FlatMap(flat_map,
                                 brain_regions,
-                                hierarchy,
+                                region_map,
                                 center_line_2d,
                                 center_line_3d[2])
 

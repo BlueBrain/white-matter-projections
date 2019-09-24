@@ -351,14 +351,18 @@ class MacroConnections(object):
         return ret
 
     @classmethod
-    def load_recipe(cls, recipe_yaml, hier, cache_dir=None, subregion_translation=None):
+    def load_recipe(cls, recipe_yaml, region_map, cache_dir=None,
+                    subregion_translation=None,
+                    region_subregion_format='{region}_{subregion}'):
         '''load population/projection/p-type recipe
 
         Args:
             recipe_yaml(str): the recipe following format, in yaml
-            hier(voxcell.Hierarchy): hierarchy to verify population acronyms against
+            region_map(voxcell.RegionMap): hierarchy to verify population acronyms against
             cache_dir(str): location to save cached data
             subregion_translation(dict): subregion alias -> subregion in atlas
+            region_subregion_format(str): format string describing the region/subregion ->
+            acronym conversion
 
         Returns:
             instance of MacroConnections
@@ -383,8 +387,9 @@ class MacroConnections(object):
             subregion_translation = {}
 
         pop_cat, populations = _parse_populations(recipe['populations'],
-                                                  hier,
-                                                  subregion_translation)
+                                                  region_map,
+                                                  subregion_translation,
+                                                  region_subregion_format)
         projections, projections_mapping = _parse_projections(recipe['projections'], pop_cat)
         ptypes, ptypes_interaction_matrix = _parse_ptypes(recipe['p-types'], pop_cat)
         layer_profiles = _parse_layer_profiles(recipe['layer_profiles'], subregion_translation)
@@ -413,12 +418,14 @@ class MacroConnections(object):
     __str__ = __repr__
 
 
-def _parse_populations(populations, hier, subregion_translation):
+def _parse_populations(populations, region_map, subregion_translation, region_subregion_format):
     '''parse_populations
 
     populations(dict): as loaded from yaml file
-    hier(voxcell.Hierarchy): hierarchy to verify population acronyms against
+    region_map(voxcell.RegionMap): hierarchy to verify population acronyms against
     subregion_translation(dict): subregion alias -> subregion in atlas
+    region_subregion_format(str): format string describing the region/subregion ->
+    acronym conversion
 
     Returns:
         tuple of:
@@ -432,12 +439,19 @@ def _parse_populations(populations, hier, subregion_translation):
                 population_filter: Category of 'Empty'/EXC/intratelencephalic or
                 'pyramidal tract'
     '''
-    data = []
+    data, removed = [], []
     for pop in populations:
-        region = pop['atlas_region']['name']
-        for subregion in pop['atlas_region']['subregions']:
+        atlas_region = pop['atlas_region']
+
+        region = atlas_region['name']
+        for subregion in atlas_region['subregions']:
             subregion = subregion_translation.get(subregion, subregion)
-            acronym = region + subregion
+
+            id_ = utils.region_subregion_to_id(
+                region_map, region, subregion, region_subregion_format)
+            if id_ <= 0:
+                removed.append((region, subregion))
+                continue
 
             if not pop['filters']:
                 pop_filter = 'Empty'
@@ -449,18 +463,16 @@ def _parse_populations(populations, hier, subregion_translation):
                 pop_filter = pop['filters']['synapse_type']
                 assert pop_filter == 'EXC', 'only can consider EXC at the moment'
 
-            row = (pop['name'], region, subregion, acronym, pop_filter)
+            row = (id_, pop['name'], region, subregion, pop_filter)
             data.append(row)
 
-    columns = ['population', 'region', 'subregion', 'acronym', 'population_filter']
+    columns = ['id', 'population', 'region', 'subregion', 'population_filter']
     populations = pd.DataFrame(data, columns=columns)
 
     pop_cat = CategoricalDtype(populations.population.unique())
     populations.population = populations.population.astype(pop_cat)
 
     populations.population_filter = populations.population_filter.astype('category')
-
-    populations['id'], removed = _populate_brain_region_ids(list(populations.acronym), hier)
 
     if removed:
         L.warning('%s are missing from atlas', sorted(removed))
@@ -629,30 +641,3 @@ def _parse_synapse_types(synapse_types):
         - ...
     '''
     return synapse_types
-
-
-def _populate_brain_region_ids(acronyms, hierarchy):
-    '''Populate ids for acronyms
-
-    Args:
-        acronyms(list of str): acronyms to look up
-        hier(voxcell.Hierarchy): hierarchy to verify population region against
-
-    Returns:
-        tuple of array of ids corresponding to rows in df and a dataframe w/ the removed rows
-    '''
-    # XXX: this is slow, speed it up
-    ret, removed = [], []
-    for acronym in acronyms:
-        id_ = hierarchy.collect('acronym', acronym, 'id')
-        if len(id_) == 0:
-            L.warning('Missing region %s', acronym)
-            removed.append(acronym)
-            ret.append(-1)
-        elif len(id_) > 1:
-            L.warning('Too many ids for region %s', acronym)
-            removed.append(acronym)
-            ret.append(-1)
-        else:
-            ret.append(next(iter(id_)))
-    return ret, removed

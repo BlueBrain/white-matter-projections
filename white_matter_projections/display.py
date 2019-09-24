@@ -47,14 +47,14 @@ def draw_connectivity(fig, df, title, module_grouping_color):
         y.set_backgroundcolor(c)
 
 
-def create_module_color_mapping(module_grouping, module_grouping_color, colors, hier):
+def create_module_color_mapping(module_grouping, module_grouping_color, colors, region_map):
     '''assign each region id a color based on the module it is in
 
     Args:
         module_grouping(list of list): [[module, [region...], ]
         module_grouping_color(dict): module -> color_name
         colors: color_name -> tuple(R, G, B)
-        hier(Hierarchy):
+        region_map(voxcell.region_map)
 
     Return:
         dict(region id -> color)
@@ -63,15 +63,7 @@ def create_module_color_mapping(module_grouping, module_grouping_color, colors, 
     for module, regions in module_grouping:
         color = colors[module_grouping_color[module]]
         for region in regions:
-            id_ = hier.find('acronym', region)
-            if len(id_) > 1:
-                L.warning('Too many (%d) regions for %s', len(id_), region)
-                continue
-            elif len(id_) == 0:
-                L.warning('Not enough regions for %s', region)
-                continue
-            id_ = id_[0].data['id']
-            id2color[id_] = color
+            id2color[next(iter(region_map.find(region, 'acronym')))] = color
 
     return id2color
 
@@ -81,7 +73,7 @@ def plot_allen_coloured_flat_map(ax, config, regions='all', only_right=False):
     id2color = create_module_color_mapping(config.config['module_grouping'],
                                            config.config['module_grouping_color'],
                                            config.config['colors'],
-                                           config.flat_map.hierarchy)
+                                           config.flat_map.region_map)
     if regions == 'all':
         regions = config.regions
 
@@ -126,12 +118,12 @@ def plot_xyz_to_flat(ax, mapper, xyz, color='black', alpha=0.05):
     return uvs
 
 
-def draw_region_outlines(ax, hier, flat_id, regions, labels='all', only_right=False):
+def draw_region_outlines(ax, region_map, flat_id, regions, labels='all', only_right=False):
     '''draws the outlines of the specified regions
 
     Args:
         ax: matplotlib axis to which the outlines will be drawn
-        hier: voxcell.hierarchy
+        region_map: voxcell.region_map
         flat_id(np.array): 2D array with the all ids to be potentially outlined
         regions(list of region names or 'all'): which regions are outlined
         labels(list of region names or 'all'): which regions have their names drawn
@@ -144,7 +136,7 @@ def draw_region_outlines(ax, hier, flat_id, regions, labels='all', only_right=Fa
     else:
         labels = set(labels)
 
-    region2ids = {region: list(hier.collect('acronym', region, 'id'))
+    region2ids = {region: list(region_map.find(region, 'acronym', with_descendants=True))
                   for region in regions}
 
     midline = flat_id.shape[1] // 2
@@ -191,7 +183,7 @@ def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=False):
 
     ax.imshow(flat_id[:, midline:])
 
-    draw_region_outlines(ax, flat_map.hierarchy, flat_region_id, regions,
+    draw_region_outlines(ax, flat_map.region_map, flat_region_id, regions,
                          only_right=only_right)
 
     return midline
@@ -270,11 +262,6 @@ def draw_projection(ax, config, allocations, syns, projection_name, side):
     draw_triangle(ax, src_verts, color='green')
     draw_triangle(ax, tgt_verts, color='yellow')
 
-    # clip to regions
-    # src_id = hier.find('acronym', src_region)[0].data['id']
-    # tgt_id = hier.find('acronym', tgt_region)[0].data['id']
-    # flat_region_id = flat_map.make_flat_id_region_map(config.regions)
-
 
 def draw_voxel_to_flat_mapping(ax, config, regions, mapper, alpha=0.5, color='limegreen'):
     '''Helper to draw the voxel to mapping, for debug purposes
@@ -288,8 +275,8 @@ def draw_voxel_to_flat_mapping(ax, config, regions, mapper, alpha=0.5, color='li
     plot_allen_coloured_flat_map(ax, config, regions='all', only_right=False)
 
     for region in regions:
-        ids = list(config.flat_map.hierarchy.collect('acronym', region, 'id'))
-        mask = np.isin(config.flat_map.brain_regions.raw, ids)
+        ids = config.flat_map.region_map.find(region, 'acronym', 'id', with_descendants=True)
+        mask = np.isin(config.flat_map.brain_regions.raw, list(ids))
         idx = np.array(np.nonzero(mask)).T
         uvs, _ = mapper.voxel_to_flat(idx, np.array([[0, 0, 0]]))
 

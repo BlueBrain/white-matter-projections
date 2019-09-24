@@ -10,7 +10,11 @@ from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
 from white_matter_projections import macro
 
-RECIPE = macro.MacroConnections.load_recipe(utils.RECIPE_TXT, utils.HIER)
+RECIPE = macro.MacroConnections.load_recipe(utils.RECIPE_TXT,
+                                            utils.REGION_MAP,
+                                            subregion_translation=utils.SUBREGION_TRANSLATION,
+                                            region_subregion_format=utils.REGION_SUBREGION_FORMAT
+                                            )
 EMPTY_CONNECTED_CENTROIDS = pd.DataFrame(columns=['start_x', 'start_y', 'start_z',
                                                   'end_x', 'end_y', 'end_z',
                                                   'source_side', 'source_region', 'target_region'])
@@ -100,7 +104,7 @@ def test_download_streamlines():
         fake_contents = 'fake_contents'
         with utils.tempdir('test_download_streamlines') as tmp:
             mock_download.side_effect = [fake_contents, None]
-            missing = sl.download_streamlines(centroids, utils.HIER, tmp, sleep_time=.1)
+            missing = sl.download_streamlines(centroids, utils.REGION_MAP, tmp, sleep_time=.1)
 
             eq_(mock_download.call_count, 2)
             eq_(tuple(missing.iloc[0]), ('FRP', 'MOs', 0, 0, 0, 125, 25, 6))
@@ -216,5 +220,4 @@ def test_write_output():
 #def test_get_centroids():
 #    flat_map = utils.fake_flat_map()
 #    ret = sl.get_connected_centroids(flat_map, RECIPE)
-#    import ipdb; pdb.set_trace()  # XXX BREAKPOINT
 #    pass

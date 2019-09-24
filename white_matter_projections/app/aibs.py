@@ -40,7 +40,7 @@ def download_streamlines(ctx):
     if not os.path.exists(streamline_csvs):
         L.info('Downlading streamlines to %s', streamline_csvs)
         os.makedirs(streamline_csvs)
-        missing = streamlines.download_streamlines(centroids, config.hierarchy, streamline_csvs)
+        missing = streamlines.download_streamlines(centroids, config.region_map, streamline_csvs)
 
         if len(missing):
             L.info('Missing streamlines: %s', missing)
