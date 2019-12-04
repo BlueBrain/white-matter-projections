@@ -1,11 +1,12 @@
 import os
 import h5py
+import itertools as it
 import numpy as np
 import pandas as pd
 
-from nose.tools import ok_, eq_
+from nose.tools import ok_, eq_, raises
 from white_matter_projections import micro, utils
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 from utils import tempdir, gte_
 
 
@@ -18,6 +19,7 @@ def fake_allocations():
                                    },
             }
 
+
 def fake_projection_mapping():
     ret = {'source_population0': {'projection0': {'target_population': 'target00'},
                                   'projection1': {'target_population': 'target01'},
@@ -27,6 +29,7 @@ def fake_projection_mapping():
                                   },
            }
     return ret
+
 
 def compare_allocations(ret):
     allocations = fake_allocations()
@@ -77,7 +80,6 @@ def test_transpose_allocations():
     eq_(len(target00.sgids), 10)
 
 
-
 def test__ptype_to_counts():
     cell_count = 10000
     ptype = pd.DataFrame([('proj0', .25),
@@ -90,7 +92,7 @@ def test__ptype_to_counts():
     interactions = None
     total_counts, overlap_counts = micro._ptype_to_counts(
         cell_count, ptype, interactions)
-    eq_(total_counts, {'proj0': 10000*0.25, 'proj1': 10000*0.25, 'proj2': 10000*0.10})
+    eq_(total_counts, {'proj0': 10000 * 0.25, 'proj1': 10000 * 0.25, 'proj2': 10000 * 0.10})
     eq_(overlap_counts, {('proj0', 'proj1'): int(10000 * 0.25 * 0.25),
                          ('proj0', 'proj2'): int(10000 * 0.25 * 0.10),
                          ('proj1', 'proj2'): int(10000 * 0.25 * 0.10),
@@ -103,12 +105,11 @@ def test__ptype_to_counts():
     interactions = pd.DataFrame(interactions, columns=proj, index=proj)
     total_counts, overlap_counts = micro._ptype_to_counts(
         cell_count, ptype, interactions)
-    eq_(total_counts, {'proj0': 10000*0.25, 'proj1': 10000*0.25, 'proj2': 10000*0.10})
+    eq_(total_counts, {'proj0': 10000 * 0.25, 'proj1': 10000 * 0.25, 'proj2': 10000 * 0.10})
     eq_(overlap_counts, {('proj0', 'proj1'): int(10000 * 0.25 * 0.25),
                          ('proj0', 'proj2'): int(10000 * 0.25 * 0.10),
                          ('proj1', 'proj2'): int(10000 * 0.25 * 0.10),
                          })
-
 
     # now with actual interactions
     interactions = np.array([[1, 2, 3],
@@ -117,7 +118,7 @@ def test__ptype_to_counts():
     interactions = pd.DataFrame(interactions, columns=proj, index=proj)
     total_counts, overlap_counts = micro._ptype_to_counts(
         cell_count, ptype, interactions)
-    eq_(total_counts, {'proj0': 10000*0.25, 'proj1': 10000*0.25, 'proj2': 10000*0.10})
+    eq_(total_counts, {'proj0': 10000 * 0.25, 'proj1': 10000 * 0.25, 'proj2': 10000 * 0.10})
     eq_(overlap_counts, {('proj0', 'proj1'): int(10000 * 0.25 * 0.25 * 2),
                          ('proj0', 'proj2'): int(10000 * 0.25 * 0.10 * 3),
                          ('proj1', 'proj2'): int(10000 * 0.25 * 0.10),
@@ -142,12 +143,12 @@ def test__make_numeric_groups():
          })
 
 
-def test__allocate_groups():
+def test__greedy_gids_allocation_from_counts():
     # simple case, no interactions
     total_counts = {'proj0': 250, 'proj1': 250, 'proj2': 100}
     overlap_counts = {}
     gids = np.arange(1000)  # 1000 > 250 + 250 + 100
-    ret = micro._allocate_groups(total_counts, overlap_counts, gids)
+    ret = micro._greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids)
     eq_(['proj0', 'proj1', 'proj2'], sorted(ret))
     eq_(len(ret['proj0']), 250)
     eq_(len(ret['proj1']), 250)
@@ -161,7 +162,7 @@ def test__allocate_groups():
                       }
     # want a large number here so unlikely to have the required overlap
     gids = np.arange(10000)
-    ret = micro._allocate_groups(total_counts, overlap_counts, gids)
+    ret = micro._greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids)
 
     eq_(len(ret['proj0']), 250)
     eq_(len(ret['proj1']), 250)
@@ -177,7 +178,7 @@ def test__allocate_groups():
     #gte_(overlap_counts[('proj1', 'proj2')], len(set(ret['proj1']) & set(ret['proj2'])))
 
 
-#def test_get_gids_py_population():
+# def test_get_gids_py_population():
 #    populations = ''
 #    cells = ''
 #    source_population = ''
@@ -185,11 +186,168 @@ def test__allocate_groups():
 #    import ipdb; ipdb.set_trace()  # XXX BREAKPOINT
 #    pass
 
-#def test_allocate_projections():
+# def test_allocate_projections():
 #    micro.allocate_projections(recipe, cells)
 
-#def test_allocation_stats():
+# def test_allocation_stats():
 #    ret = micro.allocation_stats(ptype, interactions, cell_count, allocations)
+
+def test_create_completed_interaction_matrix():
+    # The recipe doesn't provide any interaction matrix
+    recipe_interaction_matrix = None
+    region_names = ['A', 'B', 'C', 'D']
+    number_of_regions = len(region_names)
+    fractions = pd.Series([0.5, 0.25, 0.66, 0.75], index=list('ABCD'))
+
+    matrix = micro.create_completed_interaction_matrix(
+        recipe_interaction_matrix, fractions
+    )
+    # Missing entries are filled with ones.
+    # Diagonal entries are zeroed.
+    expected = np.ones([number_of_regions] * 2) - np.identity(number_of_regions)
+    assert_array_equal(expected, matrix)
+
+    # The recipe provides an interaction matrix, but only filled with ones
+    interactions = np.ones((4, 4))
+    recipe_interaction_matrix = pd.DataFrame(interactions, columns=region_names, index=region_names)
+    matrix = micro.create_completed_interaction_matrix(
+        recipe_interaction_matrix, fractions
+    )
+    assert_array_equal(expected, matrix)
+
+    # The recipe provides an interaction matrix, but with some incompatible entries
+    # i.e., some A and B such that I_S(A, B) > 1.0 / max(P(S --> A), P(S --> B))
+    interactions = np.ones((4, 4))
+    interactions[0, 1] = interactions[1, 0] = 9.0
+    interactions[2, 3] = interactions[3, 2] = 3.0
+    recipe_interaction_matrix = pd.DataFrame(interactions, columns=region_names, index=region_names)
+    matrix = micro.create_completed_interaction_matrix(
+        recipe_interaction_matrix, fractions
+    )
+    expected[0, 1] = expected[1, 0] = 2.0
+    expected[2, 3] = expected[3, 2] = 1.0 / 0.75
+    assert_array_equal(expected, matrix)
+
+    # The recipe provides an interaction matrix which is compatible
+    # with innervation probabilities in the sense that
+    # I_S(A, B) <= 1.0 / max(P(S --> A), P(S --> B))
+    expected = np.array([[1.0, 2.0, 1.5, 1.3],
+                         [2.0, 1.0, 1.5, 1.0],
+                         [1.5, 1.5, 1.0, 1.3],
+                         [1.3, 1.0, 1.3, 1.0]])
+    expected -= np.identity(number_of_regions)
+    recipe_interaction_matrix = pd.DataFrame(expected, columns=region_names, index=region_names)
+    matrix = micro.create_completed_interaction_matrix(
+        recipe_interaction_matrix, fractions
+    )
+    assert_array_equal(expected, matrix)
+
+    # The recipe provides an interaction matrix which is compatible
+    # with innervation probabilities but it has 2 missing rows and 2 missing columns
+    expected = np.array([[1.0, 2.0], [2.0, 1.0]])
+    for region_name in ['A', 'D']:
+        region_names.remove(region_name)
+    recipe_interaction_matrix = pd.DataFrame(expected, columns=region_names, index=region_names)
+    matrix = micro.create_completed_interaction_matrix(
+        recipe_interaction_matrix, fractions
+    )
+    expected = np.ones((4, 4)) - np.identity(number_of_regions)
+    expected[1, 2] = expected[2, 1] = 1.0 / 0.66
+    assert_array_equal(expected, matrix)
+
+
+def test_ptypes_to_target_groups():
+    projection_name_map = {0: 'A', 1: 'B', 2: 'C', 3: 'D'}
+    ptypes_array = [
+        set([]), set([]), set([]), set([]),
+        set([0]), set([1]), set([1]), set([3]),
+        set([2, 3]), set([2, 3]), set([0, 1]), set([0, 3]),
+        set([0, 1, 3]), set([0, 1, 3]), set([1, 2, 3]), set([0, 1, 2]),
+        set([0, 1, 2, 3]), set([0, 1, 2, 3]), set([0, 1, 2, 3])
+    ]
+    gids = range(len(ptypes_array))
+    target_groups = micro.ptypes_to_target_groups(ptypes_array, projection_name_map, gids)
+    expected = {
+        'A': [4, 10, 11, 12, 13, 15, 16, 17, 18],
+        'B': [5, 6, 10, 12, 13, 14, 15, 16, 17, 18],
+        'C': [8, 9, 14, 15, 16, 17, 18],
+        'D': [7, 8, 9, 11, 12, 13, 14, 16, 17, 18]
+    }
+    for region_name in expected:
+        assert_array_equal(expected[region_name], sorted(target_groups[region_name]))
+
+
+@raises(ValueError)
+def test_allocate_gids_to_targets_exception():
+    gids = range(10)
+    targets = None
+    recipe_interaction_matrix = None
+    # Unsupported type of algorithm
+    algorithm = 'sublinear_beta_optimal_allocation_schema'
+    micro.allocate_gids_to_targets(targets, recipe_interaction_matrix, gids, algorithm=algorithm)
+
+
+def check_target_group_sizes(algorithm, total_count=1000):
+    gids = range(total_count)
+    targets = pd.DataFrame([('A', .25),
+                            ('B', .25),
+                            ('C', .10),
+                            ('D', 0.10),
+                            ('E', 0.05)],
+                           columns=['projection_name', 'fraction'])
+    # Note: when testing the random generation of p-types
+    # we need to make sure that interaction matrix comes from an actual
+    # tree model, otherwise the population sizes/probabilities won't necessarily match.
+    interactions = np.array([[1.0, 2.0, 3.0, 4.0],
+                             [2.0, 1.0, 2.0, 2.0],
+                             [3.0, 2.0, 1.0, 3.0],
+                             [4.0, 2.0, 3.0, 1.0]
+                             ])
+    incomplete_region_names = ['A', 'B', 'D', 'E']
+    recipe_interaction_matrix = pd.DataFrame(
+        interactions,
+        columns=incomplete_region_names,
+        index=incomplete_region_names)
+    np.random.seed(0)
+    target_groups = micro.allocate_gids_to_targets(
+        targets, recipe_interaction_matrix, gids, algorithm=algorithm)
+    target_fractions = targets.set_index('projection_name')['fraction']
+    region_names = []
+    # Testing the size of the expected population for each target group
+    for region_name, fraction in target_fractions.items():
+        region_names.append(region_name)
+        if algorithm == micro.Algorithm.GREEDY:
+            assert len(target_groups[region_name]) == int(total_count * fraction)
+        elif algorithm == micro.Algorithm.STOCHASTIC_TREE_MODEL:
+            assert_allclose(len(target_groups[region_name]), int(total_count * fraction), rtol=0.05)
+    # Testing the size of the expected population for each pair of specified targets
+    for name_i, name_j in it.combinations(incomplete_region_names, 2):
+        if name_i == name_j:
+            continue
+        intersection = set(target_groups[name_i]) & set(target_groups[name_j])
+        expected = total_count * target_fractions[name_i] * target_fractions[name_j] \
+            * recipe_interaction_matrix.loc[name_i, name_j]
+        actual = len(intersection)
+        assert_allclose(actual, expected, rtol=0.10, atol=0.015 * total_count)
+    # Testing the independence constraint on the regions that were missing in the interaction matrix
+    missing_regions = [
+        region_name for region_name in region_names if region_name not in incomplete_region_names]
+    for region_name in region_names:
+        for missing_region in missing_regions:
+            if region_name == missing_region:
+                continue
+            intersection = set(target_groups[region_name]) & set(target_groups[missing_region])
+            actual_ratio = len(intersection) / \
+                (total_count * target_fractions[region_name] * target_fractions[missing_region])
+            assert_allclose(actual_ratio, 1.0, rtol=0.15)
+
+
+def test_allocate_gids_to_targets_greedy():
+    check_target_group_sizes(micro.Algorithm.GREEDY, total_count=10000)
+
+
+def test_allocate_gids_to_targets_random():
+    check_target_group_sizes(micro.Algorithm.STOCHASTIC_TREE_MODEL, total_count=10000)
 
 
 def test_partition_cells_left_right():
@@ -232,7 +390,6 @@ def test_separate_source_and_targets():
     eq_(len(ret), 6)
 
 
-
 def test__assign_groups():
     tgt_flat = np.array([[-10., -10.],
                          [10., 10.],
@@ -272,7 +429,7 @@ def test__calculate_delay_streamline():
                          (2, 2., 0., 0.),
                          (2, 3., 0., 0.),
                          (4, 4., 0., 0.), ],
-                         columns=['sgid', ] + utils.XYZ)
+                        columns=['sgid', ] + utils.XYZ)
     columns = ['path_row', 'length', 'start_x', 'start_y', 'start_z', 'end_x', 'end_y', 'end_z', ]
     streamline_metadata = pd.DataFrame([(3, 3000., 0., 0., 0., 3., 0., 0.),
                                         (4, 4000., 1., 0., 0., 4., 0., 0.),
@@ -305,12 +462,12 @@ def test__calculate_delay_direct():
                          (2, 2., 0., 0.),
                          (2, 3., 0., 0.),
                          (4, 4., 0., 0.), ],
-                         columns=['sgid', ] + utils.XYZ)
+                        columns=['sgid', ] + utils.XYZ)
 
     delay = micro._calculate_delay_direct(src_cells, syns, conduction_velocity)
     assert_allclose(delay, np.array([54, 63, 62, 81, ]) / 10.)
 
-#def test_assignment():
+# def test_assignment():
 #    config
 #    allocations
 #    side

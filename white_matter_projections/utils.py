@@ -48,7 +48,7 @@ class Config(object):
     def config(self):
         '''dictionary containing all keys in config'''
         with open(self.config_path) as fd:
-            config = yaml.load(fd)
+            config = yaml.load(fd, Loader=yaml.FullLoader)
 
         return config
 

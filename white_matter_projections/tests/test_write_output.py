@@ -98,7 +98,7 @@ def test_write_syn2():
                       needed_datasets)
         ok_(os.path.exists(output_path))
 
-        with h5py.File(output_path) as h5:
+        with h5py.File(output_path, 'r') as h5:
             props = h5[wo.DEFAULT_GROUP]
             ok_('delay' in props)
             eq_(list(props['delay']), [1.] * 5)

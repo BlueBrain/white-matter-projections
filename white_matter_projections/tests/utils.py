@@ -14,7 +14,7 @@ BASEDIR = os.path.dirname(__file__)
 DATADIR = os.path.join(BASEDIR, 'data')
 with open(os.path.join(DATADIR, 'recipe.yaml')) as fd:
     RECIPE_TXT = fd.read()
-RECIPE = yaml.load(RECIPE_TXT)
+RECIPE = yaml.load(RECIPE_TXT, Loader=yaml.FullLoader)
 
 POP_CAT = CategoricalDtype(categories=['POP1_ALL_LAYERS',
                                        'POP2_ALL_LAYERS',
@@ -173,3 +173,130 @@ def fake_flat_map():
                                 hierarchy,
                                 center_line_2d,
                                 center_line_3d[2])
+
+
+'''Below are several utils functions used for consistency checks of the methods from
+ptypes_generator.py. These functions are only run by unit tests.
+
+This includes
+   - The creation of the creation of the interaction strength matrix out
+   of a specified tree model
+   - The creation of the innervation probability row out
+   of a specified tree model.
+'''
+
+from networkx.algorithms import shortest_path
+from white_matter_projections.ptypes_generator_utils import get_root, get_leaves, is_leave
+
+def get_statistical_interaction_strength(tree, source_id, id1, id2):
+    '''Get the statistical interaction strength between to target regions.
+
+    The interaction strength between two regions represented by two leaves
+    of the p-types generating tree is the inverse of the innervation probability
+    of the lowest common ancestor of the two leaves. The innervation probability
+    of a node is the product of the crossing probabilities for each edge of the path
+    joining the source to this node.
+
+    Args:
+        tree(networkx.DiGraph): directed rooted tree with weighted edges
+        source_id(int): node identifier of the source from which axons are cast.
+        id1(int): identifier of the first leaf
+        id2(int): identifier of the second leaf
+
+    Returns:
+        interaction_strength(float): the statistical interaction strength
+        I_S(T_1, T_2) between the two target regions T_1 and T_2
+        corresponding to the identifiers id1 and id2.
+    '''
+    path_to_node_1 = shortest_path(tree, source_id, id1)
+    path_to_node_2 = shortest_path(tree, source_id, id2)
+    lowest_common_ancestor_index = np.nonzero(
+        [node in path_to_node_2 for node in path_to_node_1])[0][-1]
+    lowest_common_ancestor = path_to_node_1[lowest_common_ancestor_index]
+    path_to_lowest_common_ancestor = shortest_path(tree, source_id, lowest_common_ancestor)
+    path_length = len(path_to_lowest_common_ancestor)
+    innervation_probability = 1.0
+    for i in range(path_length - 1):
+        node = path_to_lowest_common_ancestor[i]
+        next_node = path_to_lowest_common_ancestor[i + 1]
+        crossing_probability = tree.edges[(node, next_node)]['crossing_probability']
+        innervation_probability *= crossing_probability
+    return 1.0 / innervation_probability
+
+
+def create_statistical_interaction_strength_matrix(tree):
+    '''Get the statistical interaction matrix from the p-type generating tree.
+
+    This method retrieves the matrix I_S(A, B) from the p-types generating tree.
+    The interaction strength I_S(A, B) between any two target regions A and B
+    represented by two leaves of the p-types generating tree
+    is the inverse of the innervation probability
+    of the lowest common ancestor of the two leaves.
+    The innervation probability of a node is the product of
+    the crossing probabilities for each edge of the path joining the source to this node.
+
+    Note: diagonal entries are zeroed as self-interactions are excluded.
+
+    Args:
+        tree(networkx.DiGraph): directed rooted tree with weighted edges
+
+    Returns:
+        interaction_matrix(numpy.ndarray): the statistical interaction strength
+        matrix I_S(., .) of shape (number of leaves, number of leaves).
+
+    '''
+    source_id = get_root(tree)
+    leaves = get_leaves(tree)
+    number_of_leaves = len(leaves)
+    M = np.zeros([number_of_leaves] * 2)
+    for i, id1 in enumerate(leaves):
+        for j, id2 in enumerate(leaves):
+            if i == j:
+                M[i, j] = 0.0  # self-interactions are excluded
+            else:
+                M[i, j] = get_statistical_interaction_strength(tree, source_id, id1, id2)
+    return M
+
+
+def create_innervation_probability_row(tree):
+    '''Get the innervation probabilities from the p-type generating tree.
+
+        This method retrieves the row of innervation probabilities P(S --> T)
+        from the p-types generating tree. The innervation probability of a
+        leaf is given by the product of the crossing probabilities for each edge
+        of the path joining the source to that leaf. It represents the probability that
+        an axon issued from the source S innervates the target region T corresponding
+        represented as a leaf of the generating tree.
+
+        Note: the location of the source is inferred from the tree structure. The source
+        is the only node with in-degree 0.
+
+        Args:
+            tree(networkx.DiGraph): directed rooted tree with weighted edges.
+            The weight of an edge is the probability that an axon which have
+            reached the edge origin crosses it, reaching also the other end.
+
+        Returns:
+            row(numpy.ndarray): 1D float array holding the innervation probabilities
+            P(S --> T) for every target region T.
+    '''
+    row_size = len(get_leaves(tree))
+    row = np.full(row_size, np.nan)
+    # Breadth-first search
+    source_id = get_root(tree)
+    node_stack = [{'id': source_id, 'innervation_probability': 1.0}]
+    while len(node_stack) > 0:
+        current_node = node_stack.pop()
+        outward_edges = tree.out_edges(current_node['id'])
+        for edge in outward_edges:
+            crossing_probability = tree.edges[edge]['crossing_probability']
+            path_probability = current_node['innervation_probability'] * crossing_probability
+            successor = edge[1]
+            if is_leave(tree, successor):
+                row[successor] = path_probability
+            else:
+                node_stack.append({
+                    'id': successor,
+                    'innervation_probability': path_probability
+                })
+    return row

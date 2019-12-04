@@ -14,11 +14,14 @@ This includes
         there is a multipler, that would increase the baseline by that multiple.
 
 '''
+from collections import defaultdict
+from enum import Enum
 from functools import partial
 import itertools as it
 import logging
 import math
 import os
+import warnings
 
 import h5py
 import numpy as np
@@ -26,10 +29,20 @@ import pandas as pd
 
 from joblib import Parallel, delayed
 from white_matter_projections import sampling, utils, streamlines, mapping
+from white_matter_projections.ptypes_generator import PtypesGenerator
 
 
 ASSIGNMENT_PATH = 'ASSIGNED'
 L = logging.getLogger(__name__)
+
+
+class Algorithm(Enum):
+    '''
+    Class holding the algorithms that one
+    can use to allocate gids to target groups.
+    '''
+    STOCHASTIC_TREE_MODEL = 0
+    GREEDY = 1
 
 
 def save_allocations(allocations_path, allocations):
@@ -123,16 +136,195 @@ def _make_numeric_groups(total_counts, overlap_counts):
     return names, name_map, total_counts, overlap_counts
 
 
-def _allocate_groups(total_counts, overlap_counts, gids):
-    '''Greedy allocation of gids to groups
+def create_completed_interaction_matrix(recipe_interaction_matrix, fractions):
+    '''Convert the recipe's interaction matrix into a 2D float array. Ones replace missing entries.
+
+    The interaction matrix is made compliant, in a weak sense,
+    with the ptype-generating tree model before it is used to build such a tree.
+    This only means that the inverse of each interaction strength can be interpreted
+    as the innervation probability of an internal node of the model.
+    The output matrix dimensions match the size of the fractions list, i.e.,
+    the number of target regions.
+
+    Missing entries are filled with ones. Diagonal entries are zeroed.
 
     Args:
-        total_counts(dict): group_name -> count (int)
-        overlap_counts(dict): tuple(group_name, group_name) -> how many overlapping sgids there are
-        gids(np.array of gids): gids to allocate to different groups
+        recipe_interaction_matrix(pandas.DataFrame): DataFrame of float values where rows
+            and columns are labelled by target region names. The entries of the matrix are the
+            stastistical interaction strengths
+                I_S(A, B) := P(S --> A) P(S --> B) / P(S --> A intersection B)
+            with S the source region and (A, B) any pair of target regions.
+            Some target pairs may be missing with respect to the full list of target regions
+            given in the fractions dict. For each missing target region A, the values I_S(A, .)
+            are set to 1.0. This means that A can be innervated by S independently of any other
+            target region.
+            The DataFrame recipe_interaction_matrix can be None, in which case the innervations of
+            the different target regions are assumed to all be independent.
+        fractions(list): list of innervation probabilities for the target regions, interpreted
+            as the expected fractions of the source neurons that will innervate the corresponding
+            target regions. The mapping between indices and names is provided by regions.
 
     Returns:
-        dict: group_name -> gids
+        completed_interaction_matrix(pandas.DataFrame): a 2D float array holding the values
+            of I_S(A, B) for all pairs of target region indices (i_A, i_B) in accordance with
+            the input name map.
+    '''
+    regions = fractions.index
+
+    if recipe_interaction_matrix is None:
+        df = pd.DataFrame()
+    else:
+        df = recipe_interaction_matrix
+
+    # Independence is assumed for missing entries.
+    # Note however that the interpretation in terms of probabilities
+    # imposes much more constraints on the matrices than those above.
+    # These constraints are much more involved but could be checked
+    # a posteriori once the tree is built.
+    # These lines fills all missing rows and columns with ones
+    df = df.reindex(index=regions, columns=regions, fill_value=1)
+    np.fill_diagonal(df.values, 0)
+
+    # Make sure the interaction matrix is compatible with its interpretation
+    # as the inverse of the innervation probability of the lowest common ancestor in
+    # the tree model.
+    # See formula (4) of https://www.nature.com/articles/s41467-019-11630-x.
+    for i, j in it.permutations(df.columns, 2):
+        df.loc[i, j] = min(1.0 / max(fractions[i], fractions[j]), df.loc[i, j])
+
+    return df
+
+
+def ptypes_to_target_groups(ptypes_array, regions, gids):
+    '''Convert an array of ptypes into groups of gids labelled by target regions.
+
+    Args:
+        ptypes_array(list): one-dimensional array of ptypes.
+            A ptype is a set of target region indices.
+            The map between target region names and indices is given by regions.
+        region_names(list): list of target region names
+        gids(numpy.ndarray): one-dimensional array of integer identifiers for
+            the neurons of the source region of interest. These neurons identifiers
+            will be allocated to the different target groups based on the input array of ptypes.
+        regions(dict): dict whose keys are integer indices and
+            whose values are target region names.
+
+    Returns:
+        target_groups(dict): dict whose keys are the target regions names and whose values are
+            one-dimensional arrays of gids allocated from the input gids array.
+    '''
+    target_groups = defaultdict()
+    for region_name in regions.values():
+        target_groups[region_name] = []
+    for gid, ptype in zip(gids, ptypes_array):
+        for region_index in ptype:
+            region_name = regions[region_index]
+            target_groups[region_name].append(gid)
+
+    return dict(target_groups)
+
+
+def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids):
+    '''Random allocation of gids to target groups in accordance to the tree
+    model of 'A null model of the mouse whole-neocortex micro-connectome',
+    see Section 'A model to generate projection types' of
+    https://www.nature.com/articles/s41467-019-11630-x.
+
+    Args:
+        targets(pandas.DataFrame): DataFrame holding the projection_name section of the
+            recipe for a given source of interest.
+        recipe_interaction_matrix(pandas.DataFrame): DataFrame holding the
+            interaction matrix section of the recipe for a given source of interest.
+        gids(numpy.ndarray): 1D array of gids to be allocated
+            to different target populations.
+
+    Returns:
+        target_groups(dict): dict whose keys are target region names and whose values are
+            list of allocated gids taken from the input gids array.
+    '''
+    target_fractions = targets.set_index('projection_name')['fraction']
+    # We need to handle the missing matrix entries as well.
+    full_interaction_matrix = create_completed_interaction_matrix(
+        recipe_interaction_matrix, target_fractions)
+    generator = PtypesGenerator(list(target_fractions), full_interaction_matrix.values)
+    # We create a generator instance based on the tree model.
+    ptypes = generator.generate_random_ptypes(len(gids))
+    regions = dict(enumerate(target_fractions.keys()))
+    target_groups = ptypes_to_target_groups(ptypes, regions, gids)
+
+    return target_groups
+
+
+def allocate_gids_to_targets(
+    targets, recipe_interaction_matrix, gids, algorithm=Algorithm.STOCHASTIC_TREE_MODEL
+):
+    '''Allocation of gids to target groups
+
+    Args:
+        targets(pandas.DataFrame): DataFrame holding the projection_name section of the
+            recipe for a given source of interest.
+        recipe_interaction_matrix(pandas.DataFrame): DataFrame holding the
+            interaction matrix section of the recipe for a given source of interest.
+        gids(numpy.ndarray): 1D array of gids to be allocated to different target populations.
+            algorithm(string): (optional) algorithm to be used so as to populate target groups.
+            Defaults to STOCHASTIC_TREE_MODEL, the allocation schema based on the tree model of
+            'A null model of the mouse whole-neocortex micro-connectome' by M. Reimann et al.
+
+    Returns:
+        target_groups(dict): dict whose keys are target region names and whose values are
+            list of allocated gids taken from the input gids array.
+    '''
+    if not isinstance(algorithm, Algorithm):
+        raise ValueError(
+            ' The algorithm {} is not supported. For gids allocation to target groups,'
+            ' you can use one of the following options: {}'.format(algorithm, list(Algorithm)))
+    algorithm_function = {
+        Algorithm.STOCHASTIC_TREE_MODEL: _allocate_gids_randomly_to_targets,
+        Algorithm.GREEDY: _allocate_gids_greedily_to_targets
+    }
+    return algorithm_function[algorithm](targets, recipe_interaction_matrix, gids)
+
+
+def _allocate_gids_greedily_to_targets(targets, recipe_interaction_matrix, gids):
+    '''Greedy allocation of gids to target groups
+
+    Args:
+        targets(pandas.DataFrame): DataFrame holding the projection_name section of the
+            recipe for a given source of interest.
+            recipe_interaction_matrix(pandas.DataFrame): DataFrame holding
+            the interaction matrix section of the recipe for a given source of interest.
+        gids(np.array of gids): gids to allocate to different target populations
+
+    Returns:
+        target_groups(dict): dict whose keys are target region names and whose values are
+            list of allocated gids taken from the input gids array.
+    '''
+    warnings.warn(
+        ' The function _allocate_gids_greedily_to_targets will be deprecated in version 0.0.2.'
+        ' It is currently used for the benchmarking of _allocate_gids_randomly_to_targets.'
+        ' Use _allocate_gids_randomly_to_targets instead.',
+        PendingDeprecationWarning
+    )
+    total_counts, overlap_counts = _ptype_to_counts(len(gids), targets, recipe_interaction_matrix)
+    target_groups = _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids)
+
+    return target_groups
+
+
+def _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids):
+    '''Greedy allocation of gids to target groups
+
+    Args:
+        total_counts(dict): dictionary whose keys are target region names
+            and whose values are the expected sizes of the corresponding target groups.
+            overlap_counts(dict): dictionary whose keys are pairs target region names
+            and whose values are the expected overlap counts of the corresponding
+            target groups.
+        gids(np.array of gids): gids to allocate to different target populations
+
+    Returns:
+        target_groups(dict): dict whose keys are target region names and whose values are
+            list of allocated gids taken from the input gids array.
 
     Note: This is not optimal by any means; I haven't tried to prove, but my gut
     feeling is that this partitioning problem is NP-complete, and because some
@@ -269,7 +461,7 @@ def allocate_projections(recipe, get_cells):
 
     Args:
         recipe(MacroConnections): recipe
-        cells(DataFrame): as returned by bluepy.v2.Circuit.cells.get()
+        cells(pandas.DataFrame): as returned by bluepy.v2.Circuit.cells.get()
 
     Returns:
         dict of source_population -> dict projection_name -> np array of source gids
@@ -288,10 +480,9 @@ def allocate_projections(recipe, get_cells):
         L.info('Allocating for source population: %s', source_population)
 
         gids = get_gids_by_population(recipe.populations, get_cells, source_population)
-        interactions = recipe.ptypes_interaction_matrix.get(source_population, None)
+        interaction_matrix = recipe.ptypes_interaction_matrix.get(source_population, None)
 
-        total_counts, overlap_counts = _ptype_to_counts(len(gids), ptype, interactions)
-        ret[source_population] = _allocate_groups(total_counts, overlap_counts, gids)
+        ret[source_population] = allocate_gids_to_targets(ptype, interaction_matrix, gids)
 
     if skipped_populations:
         L.warning('Skipping populations because empty p-types: %s', sorted(skipped_populations))

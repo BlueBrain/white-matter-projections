@@ -376,7 +376,7 @@ class MacroConnections(object):
             except:  # noqa  # pylint: disable=bare-except
                 pass
 
-        recipe = yaml.load(recipe_yaml)
+        recipe = yaml.load(recipe_yaml, Loader=yaml.FullLoader)
 
         pop_cat, populations = _parse_populations(recipe['populations'], hier)
         projections, projections_mapping = _parse_projections(recipe['projections'], pop_cat)
