@@ -23,7 +23,7 @@ setup(
         'click>=6.0',
         'lazy>=1.0',
         'joblib>=0.13.1',
-        'matplotlib>=2.0.0',
+        'matplotlib>=2.0.0,<3.0.0',
         'pandas>=0.23.0',
         'projectionizer>=1.1.0.dev3',
         'pyarrow>=0.11.1',
