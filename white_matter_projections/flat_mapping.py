@@ -13,15 +13,13 @@ class FlatMap(object):
     '''Holds flat map, and related hierarchy and brain_regions'''
     def __init__(self,
                  flat_map,
-                 flat_map_shape,
                  brain_regions,
                  hierarchy,
                  center_line_2d, center_line_3d):
         '''init
 
         Args:
-            flat_map(VoxelData): mapping of each voxel to a raveled coordinate in `shape`
-            flat_map_shape(tuple): 2D tuple giving the dimensions of 2D flatmap
+            flat_map(VoxelData): mapping of each voxel in 3D to a 2D pixel location
             brain_regions(VoxelData): brain regions dataset at the same resolution as the flatmap
             hierarchy(voxcell.Hierarchy): associated with brain_regions
             center_line_2d(float): defines the line separating the hemispheres in the flat map
@@ -29,16 +27,17 @@ class FlatMap(object):
             in world coordiates
         '''
         self.flat_map = flat_map
-        self.shape = flat_map_shape
         self.brain_regions = brain_regions
         self.hierarchy = hierarchy
         self.center_line_2d = center_line_2d
         self.center_line_3d = center_line_3d
 
+        self.flat_idx = (flat_map.raw[:, :, :, 0] > 0) | (flat_map.raw[:, :, :, 1] > 0)
+        self.shape = np.max(flat_map.raw[self.flat_idx], axis=0) + 1
+
     @classmethod
     def load(cls,
              flat_map_path,
-             flat_map_shape,
              brain_regions_path,
              hierarchy_path,
              center_line_2d,
@@ -48,8 +47,7 @@ class FlatMap(object):
         brain_regions = voxcell.VoxelData.load_nrrd(brain_regions_path)
         hier = voxcell.hierarchy.Hierarchy.load_json(hierarchy_path)
 
-        return cls(flat_map, flat_map_shape, brain_regions, hier,
-                   center_line_2d, center_line_3d)
+        return cls(flat_map, brain_regions, hier, center_line_2d, center_line_3d)
 
     def make_flat_id_region_map(self, regions):
         '''find most popular *parent* region IDs for each flat_map value, based on path in voxels
@@ -60,11 +58,9 @@ class FlatMap(object):
         Return:
             ndarray of shape flat_map.view_lookup with the most popular id of region
         '''
-        flat_id = np.full(self.shape, fill_value=-1, dtype=int)
-
-        flat_idx = np.nonzero(self.flat_map.raw)
-        df = pd.DataFrame({'subregion_id': self.brain_regions.raw[flat_idx],
-                           'flat_idx': self.flat_map.raw[flat_idx]
+        df = pd.DataFrame({'subregion_id': self.brain_regions.raw[self.flat_idx],
+                           'flat_x': self.flat_map.raw[self.flat_idx, 0],
+                           'flat_y': self.flat_map.raw[self.flat_idx, 1],
                            })
 
         region2id = pd.DataFrame([(region, self.hierarchy.find('acronym', region)[0].data['id'])
@@ -78,8 +74,10 @@ class FlatMap(object):
                       )
         df = df.join(parent_ids, on='subregion_id', how='inner')
 
-        most_popular = df.groupby('flat_idx').parent_region_id.agg(
+        most_popular = df.groupby(['flat_x', 'flat_y']).parent_region_id.agg(
             lambda x: pd.Series.mode(x)[0])
 
-        flat_id.ravel()[most_popular.index.values] = most_popular.values
+        flat_id = np.full(self.shape, fill_value=-1, dtype=np.int64)
+        idx = tuple(most_popular.reset_index()[['flat_x', 'flat_y']].to_numpy().T)
+        flat_id[idx] = most_popular.to_numpy()
         return flat_id

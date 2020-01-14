@@ -46,36 +46,33 @@ def test__paths_intersection_distances():
 
 def test_create_cortical_to_flatmap():
     regions = ['two', 'twenty', 'thirty', ]
-    v2f, flat_map_shape = cortical_mapping.create_cortical_to_flatmap(CORTICAL_MAP, regions, n_jobs=1)
+    v2f = cortical_mapping.create_cortical_to_flatmap(CORTICAL_MAP, regions, n_jobs=1, backfill=False)
 
-    eq_(flat_map_shape, (5, 5, ))
     eq_(v2f.shape, (5, 5, 5))
-    eq_(np.count_nonzero(v2f.raw), 14)
-    mapping = np.array(np.unravel_index(v2f.raw[np.nonzero(v2f.raw)],
-                                        CORTICAL_MAP.view_lookup.shape)
-                       ).T
-    assert_allclose(mapping[-4:, :], [[2, 2]] * 4)
+    eq_(v2f.raw.shape, (5, 5, 5, 2))
+    nz_idx = np.nonzero((v2f.raw[:, :, :, 0] > 0) | (v2f.raw[:, :, :, 1] > 0))
+    eq_(len(nz_idx[0]), 14)
+    assert_allclose(v2f.raw[nz_idx][-4:, :], [[2, 2]] * 4)
 
     # test backfill
     wanted_ids = {'two': [2]}
-    v2f.raw[1, 0, 0] = 0  # this should be filled in with the original value
+    v2f.raw[1, 0, 0, :] = 0  # this should be filled in with the original value
     cortical_mapping._backfill_voxel_to_flat_mapping(v2f,
                                                      CORTICAL_MAP.load_brain_regions(),
-                                                     CORTICAL_MAP.load_cortical_view_lookup().shape,
                                                      CORTICAL_MAP.center_line_2d,
                                                      CORTICAL_MAP.center_line_3d,
                                                      wanted_ids)
-    eq_(v2f.raw[1, 0, 0], 5)
+    eq_(v2f.raw[1, 0, 0, 0], 1)
+    eq_(v2f.raw[1, 0, 0, 1], 1)
 
     #check we handle edge values
-    eq_(v2f.raw[1, 0, 0], 5)
     cortical_mapping._backfill_voxel_to_flat_mapping(v2f,
                                                      CORTICAL_MAP.load_brain_regions(),
-                                                     CORTICAL_MAP.load_cortical_view_lookup().shape,
                                                      CORTICAL_MAP.center_line_2d,
                                                      CORTICAL_MAP.center_line_3d,
                                                      wanted_ids)
-    eq_(v2f.raw[1, 0, 0], 5)
+    eq_(v2f.raw[1, 0, 0, 0], 1)
+    eq_(v2f.raw[1, 0, 0, 1], 1)
 
 
 def test__voxel2flat_helper():

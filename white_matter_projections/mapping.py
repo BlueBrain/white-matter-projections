@@ -55,10 +55,8 @@ class VoxelToFlat(object):
 
     def __call__(self, voxel_ijks, offsets):
         flat_ids = self.voxel_to_flat_mapping.raw[tuple(voxel_ijks.T)]
-        idx = np.array(np.unravel_index(flat_ids, self.shape)).T
-
         offsets = offsets[cXZ]
-        return idx.astype(float), offsets
+        return flat_ids.astype(float), offsets
 
 
 class FlatToFlat(object):

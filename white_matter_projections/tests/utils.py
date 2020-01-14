@@ -160,15 +160,13 @@ class CorticalMap(object):
 def fake_flat_map():
     from white_matter_projections import flat_mapping
     flat_map = VoxelData.load_nrrd(os.path.join(DATADIR, '5x5x5_flat_map.nrrd'))
-    flat_map_shape = (5, 5, )
 
     brain_regions, hierarchy = fake_brain_regions()
-    center_line_2d = flat_map.shape[1] / 2.
+    center_line_2d = 2.5
     center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape +
                       brain_regions.offset) / 2.
 
     return flat_mapping.FlatMap(flat_map,
-                                flat_map_shape,
                                 brain_regions,
                                 hierarchy,
                                 center_line_2d,

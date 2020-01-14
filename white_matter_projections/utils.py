@@ -129,7 +129,6 @@ class Config(object):
         from white_matter_projections import flat_mapping
         config = self.config['flat_mapping']
         flat_map = flat_mapping.FlatMap.load(config['flat_map'],
-                                             config['flat_map_shape'],
                                              config['brain_regions'],
                                              config['hierarchy'],
                                              config['center_line_2d'],

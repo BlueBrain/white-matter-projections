@@ -229,14 +229,12 @@ def _voxel2flat_worker(cortical_map_paths, regions, path_fits, locs):
     return ret
 
 
-def _create_voxcell_from_xy(locations, brain_regions, view_lookup, flat_xy):
+def _create_flatmap_from_xy(locations, brain_regions, flat_xy):
     '''
     Args:
-        locations(array(Nx3)): locations
+        locations(array(Nx3)): locations of flat_map coordinates
         brain_regions(3D np.array): labeled brain regions
-        view_lookup(2D np.array): as defined in module docstring
-        flat_xy(np.array(Nx3): containing coordinates in flat_map space
-        of locations
+        flat_xy(np.array(Nx3): containing coordinates in flat_map space of locations
     '''
     nz = np.count_nonzero(flat_xy) // 2
     if len(locations) > nz:
@@ -244,16 +242,14 @@ def _create_voxcell_from_xy(locations, brain_regions, view_lookup, flat_xy):
                 len(locations) - nz, len(locations),
                 (len(locations) - nz) / len(locations))
 
-    ret = np.zeros_like(brain_regions.raw)
-    ret[tuple(locations.T)] = np.ravel_multi_index(tuple(flat_xy.T.astype(int)),
-                                                   view_lookup.shape)
+    ret = np.zeros(shape=tuple(brain_regions.raw.shape) + (2, ), dtype=np.int)
+    ret[tuple(locations.T)] = flat_xy.astype(int)
     ret = brain_regions.with_data(ret)
     return ret
 
 
-def _backfill_voxel_to_flat_mapping(voxel_mapping,
+def _backfill_voxel_to_flat_mapping(flat_map,
                                     brain_regions,
-                                    view_lookup_shape,
                                     center_line_2d,
                                     center_line_3d,
                                     wanted_ids):
@@ -268,18 +264,19 @@ def _backfill_voxel_to_flat_mapping(voxel_mapping,
     count = 0
     for ids in wanted_ids.values():
         idx = np.nonzero(np.isin(brain_regions.raw, list(ids)))
-        missing_rows = np.nonzero(voxel_mapping.raw[idx] <= 0)[0]
+        missing_rows = flat_map.raw[idx]
+        missing_rows = np.nonzero((missing_rows[:, 0] <= 0) & (missing_rows[:, 1] <= 0))[0]
         idx = np.array(idx).T
         for missing_row in missing_rows:
             miss = tuple(idx[missing_row, :])
 
             neighbors = NEIGHBORS + miss
-            in_bounds = np.all((neighbors >= 0) & (neighbors < voxel_mapping.raw.shape), axis=1)
+            in_bounds = np.all((neighbors >= 0) & (neighbors < flat_map.raw.shape[:3]), axis=1)
             neighbors = neighbors[in_bounds]
-            neighbor_values = voxel_mapping.raw[tuple(neighbors.T)]
+            neighbor_values = flat_map.raw[tuple(neighbors.T)]
 
-            neighbor_values = neighbor_values[np.nonzero(neighbor_values)]
-            neighbor_values = np.array(np.unravel_index(neighbor_values, view_lookup_shape)).T
+            neighbor_values = neighbor_values[(neighbor_values[:, 0] > 0) |
+                                              (neighbor_values[:, 1] > 0)]
 
             if miss[Z] <= center_line_idx:  # 'left'
                 neighbor_values = neighbor_values[neighbor_values[cY] <= center_line_2d]
@@ -290,9 +287,7 @@ def _backfill_voxel_to_flat_mapping(voxel_mapping,
                 continue
 
             count += 1
-            flat_xy = np.mean(neighbor_values, axis=0).astype(int)
-
-            voxel_mapping.raw[miss] = np.ravel_multi_index(tuple(flat_xy.T), view_lookup_shape)
+            flat_map.raw[miss] = np.round(np.mean(neighbor_values, axis=0)).astype(int)
 
     L.info('Backfill updated %d values', count)
 
@@ -334,16 +329,12 @@ def create_cortical_to_flatmap(cortical_map_paths,
                 for locs in np.array_split(locations, chunks, axis=0))
 
     flat_xy = np.vstack(flat_xy)
-    voxel_mapping = _create_voxcell_from_xy(locations,
-                                            brain_regions,
-                                            cortical_map_paths.load_cortical_view_lookup(),
-                                            flat_xy)
+    flat_map = _create_flatmap_from_xy(locations, brain_regions, flat_xy)
 
     if backfill:
-        _backfill_voxel_to_flat_mapping(voxel_mapping,
+        _backfill_voxel_to_flat_mapping(flat_map,
                                         brain_regions,
-                                        cortical_view_lookup.shape,
                                         cortical_map_paths.center_line_2d,
                                         cortical_map_paths.center_line_3d,
                                         wanted_ids)
-    return voxel_mapping, cortical_view_lookup.shape
+    return flat_map

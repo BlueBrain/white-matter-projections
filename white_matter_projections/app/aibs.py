@@ -113,6 +113,5 @@ def cortical2flatmap(cortical_map,
 
     cortical_map_paths = cortical_mapping.CorticalMapParameters(
         cortical_map, brain_regions, hierarchy, center_line_2d, center_line_3d)
-    ret, flat_map_shape = cortical_mapping.create_cortical_to_flatmap(cortical_map_paths, regions)
+    ret = cortical_mapping.create_cortical_to_flatmap(cortical_map_paths, regions)
     ret.save_nrrd(output)
-    print_color('The flat_map shape is (%d, %d)', *flat_map_shape)
