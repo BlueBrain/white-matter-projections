@@ -98,6 +98,17 @@ class Config(object):
         return path
 
     @lazy
+    def delay_method(self):
+        '''get the style of method, one of 'streamlines', 'direct', 'dive'
+
+        Note: 'direct' is the default
+        '''
+        delay_method = self.config.get('delay_method', 'direct')
+        methods = ('streamlines', 'dive', 'direct')
+        assert delay_method in methods, '%s not in %s' % (delay_method, methods)
+        return delay_method
+
+    @lazy
     def region_map(self):
         '''heirarchy referenced via atlas in config'''
         if 'hierarchy' in self.config:

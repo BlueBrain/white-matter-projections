@@ -80,10 +80,8 @@ def subsample(ctx, target_population, side, reverse):
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.option('-r', '--reverse', is_flag=True,
               help='Perform assignment of projections in reverse order')
-@click.option('--use-streamlines', is_flag=True, default=False,
-              help='Calculate delay using already downloaded streamlines')
 @click.pass_context
-def assignment(ctx, target_population, side, reverse, use_streamlines):
+def assignment(ctx, target_population, side, reverse):
     '''assign sgids created in allocations with candidate synapses from subsample'''
     from white_matter_projections import micro
     config, output = ctx.obj['config'], ctx.obj['output']
@@ -107,8 +105,7 @@ def assignment(ctx, target_population, side, reverse, use_streamlines):
                      projections_mapping,
                      side,
                      closest_count,
-                     reverse,
-                     use_streamlines)
+                     reverse)
 
 
 @cmd.command()

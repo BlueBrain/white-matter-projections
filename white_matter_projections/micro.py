@@ -661,6 +661,29 @@ def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=No
     return src_flat.index[ids]
 
 
+def _calculate_delay_dive(src_cells, syns, conduction_velocity, atlas):
+    '''make the 'dive' connection delay
+
+    diving menas that the signal (per SSCXDIS-193):
+        'goes straight down into the white matter, then straight towards the
+        target region, then up towards the target.'
+    '''
+    ph_y = atlas.load_data('[PH]y')
+
+    def depth(xyz):
+        '''find the depth of position `xyz`'''
+        idx = ph_y.positions_to_indices(xyz)
+        return ph_y.raw[tuple(idx.T)]
+
+    src_distance = depth(src_cells[utils.XYZ].loc[syns.sgid].to_numpy())
+    tgt_distance = depth(syns[utils.XYZ].to_numpy())
+
+    delay = ((src_distance + tgt_distance) / conduction_velocity['intra_region'] +
+             _calculate_delay_direct(src_cells, syns, conduction_velocity))
+
+    return delay.astype(np.float32)
+
+
 def _calculate_delay_direct(src_cells, syns, conduction_velocity):
     '''make the 'direct' (ie: straight) connection delay
 
@@ -715,7 +738,7 @@ def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction
 
 
 def assignment(output, config, allocations, projections_mapping, side,
-               closest_count, reverse, use_streamlines):
+               closest_count, reverse):
     '''perform ssignment'''
     # pylint: disable=too-many-locals
     samples_path = os.path.join(output, sampling.SAMPLE_PATH)
@@ -723,7 +746,7 @@ def assignment(output, config, allocations, projections_mapping, side,
     left_cells, right_cells = partition_cells_left_right(config.get_cells(),
                                                          config.flat_map.center_line_3d)
 
-    if use_streamlines:
+    if config.delay_calc == 'streamlines':
         streamline_metadata = streamlines.load(output, only_metadata=True)
 
     mapper = mapping.CommonMapper.load_default(config)
@@ -765,7 +788,7 @@ def assignment(output, config, allocations, projections_mapping, side,
         sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
         syns['sgid'] = assign_groups(src_coordinates, flat_tgt_uvs, sigma, closest_count)
 
-        if use_streamlines:
+        if config.delay_calc == 'streamlines':
             source_region = utils.population2region(config.recipe.populations, source_population)
             target_region = utils.population2region(config.recipe.populations, target_population)
             source_region, target_region = source_region, target_region  # trick pylint
@@ -779,6 +802,10 @@ def assignment(output, config, allocations, projections_mapping, side,
                                                                  metadata,
                                                                  conduction_velocity)
             utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
+        elif config.delay_calc == 'dive':
+            syns['delay'] = _calculate_delay_dive(
+                src_cells, syns, conduction_velocity, config.atlas)
         else:
             syns['delay'] = _calculate_delay_direct(src_cells, syns, conduction_velocity)
+
         utils.write_frame(output_path, syns)

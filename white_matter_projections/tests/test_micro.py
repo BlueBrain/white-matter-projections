@@ -4,6 +4,7 @@ import itertools as it
 import numpy as np
 import pandas as pd
 
+import voxcell
 import yaml
 from nose.tools import ok_, eq_, raises
 from white_matter_projections import macro, micro, utils as wmp_utils
@@ -489,6 +490,37 @@ def test__calculate_delay_direct():
 
     delay = micro._calculate_delay_direct(src_cells, syns, conduction_velocity)
     assert_allclose(delay, np.array([54, 63, 62, 81, ]) / 10.)
+
+
+def test__calculate_delay_dive():
+    conduction_velocity = {'inter_region': 10.,
+                           'intra_region': 1.
+                           }
+
+    src_cells = pd.DataFrame([(55., 0., 0.,),
+                              (65., 0., 0.,),
+                              (75., 0., 0.,),
+                              (85., 0., 0.,), ],
+                             columns=wmp_utils.XYZ,
+                             index=[1, 2, 3, 4])
+    syns = pd.DataFrame([(1, 1., 0., 0.),
+                         (2, 2., 0., 0.),
+                         (2, 3., 0., 0.),
+                         (4, 4., 0., 0.), ],
+                        columns=['sgid', ] + wmp_utils.XYZ)
+
+    class Atlas():
+        @staticmethod
+        def load_data(dataset):
+            assert dataset == '[PH]y'
+            return voxcell.VoxelData(np.ones((10, 10, 10)),
+                                     voxel_dimensions=(10., 10., 10.),
+                                     offset=(0., 0., 0.))
+
+    delay = micro._calculate_delay_dive(src_cells, syns, conduction_velocity, Atlas())
+    # delay is the same as direct delay, except one is added on the way from the synapse
+    # to bottom of layer 6, and then another 1 on the way back 'up'
+    assert_allclose(delay, np.array([54, 63, 62, 81, ]) / 10. + 1. + 1.)
 
 # def test_assignment():
 #    config
