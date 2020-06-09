@@ -12,29 +12,8 @@ from numpy.testing import assert_allclose, assert_array_equal
 import utils
 
 
-def fake_allocations():
-    return {'source_population0': {'projection0': np.arange(10),
-                                   'projection1': np.arange(10, 20),
-                                   },
-            'source_population1': {'projection0': np.arange(20, 30),
-                                   'projection1': np.arange(30, 40),
-                                   },
-            }
-
-
-def fake_projection_mapping():
-    ret = {'source_population0': {'projection0': {'target_population': 'target00'},
-                                  'projection1': {'target_population': 'target01'},
-                                  },
-           'source_population1': {'projection0': {'target_population': 'target10'},
-                                  'projection1': {'target_population': 'target11'},
-                                  },
-           }
-    return ret
-
-
 def compare_allocations(ret):
-    allocations = fake_allocations()
+    allocations = utils.fake_allocations()
 
     eq_(sorted(allocations), sorted(ret))
     assert_allclose(allocations['source_population0']['projection0'],
@@ -44,20 +23,20 @@ def compare_allocations(ret):
 
 
 def test_save_load_allocations():
-    allocations = fake_allocations()
+    allocations = utils.fake_allocations()
     with utils.tempdir('test_serialize_allocations') as tmp:
         name = os.path.join(tmp, 'allocations.h5')
         micro.save_allocations(name, allocations)
         ret = micro.load_allocations(name, projections_mapping=None)
         compare_allocations(ret)
 
-        projections_mapping = fake_projection_mapping()
+        projections_mapping = utils.fake_projection_mapping()
         ret = micro.load_allocations(name, projections_mapping)
         ok_(isinstance(ret, pd.DataFrame))
 
 
 def test_serialize_allocations():
-    allocations = fake_allocations()
+    allocations = utils.fake_allocations()
 
     with utils.tempdir('test_serialize_allocations') as tmp:
         name = os.path.join(tmp, 'allocations.h5')
@@ -71,8 +50,8 @@ def test_serialize_allocations():
 
 
 def test_transpose_allocations():
-    allocations = fake_allocations()
-    projections_mapping = fake_projection_mapping()
+    allocations = utils.fake_allocations()
+    projections_mapping = utils.fake_projection_mapping()
 
     ret = micro.transpose_allocations(allocations, projections_mapping)
     ret.set_index('target_population', inplace=True)

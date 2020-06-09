@@ -216,5 +216,21 @@ If a layer needs to be split for `layer_profiles:relative_densities`, for instan
 
     layer_splits: {'1': [('1a', 0.25), ('1b', 0.75)]}
 
+only_segments_from_region
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Filter segments to only be ones from neurons whose soma are in the respective region.
+Note: if the index is split, this has no effect.
+
+
+compensation
+~~~~~~~~~~~~
+
+Use compensation, as defined in :ref:`Density Compensation`
+
+.. code-block:: yaml
+
+        compensation: true
+
 
 .. _`AIBS streamlines`: http://api.brain-map.org/examples/lines/index.html

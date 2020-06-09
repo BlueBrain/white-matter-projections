@@ -112,6 +112,69 @@ def used_locations(ctx, target_population, side):
 @click.option('-n', '--name', 'projection_name')
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
 @click.pass_context
+def calculate_compensation(ctx, projection_name, side):
+    '''Display the result of using the 'compensation' method'''
+    # pylint: disable=too-many-locals
+    from white_matter_projections import sampling, display
+    config = ctx.obj['config']
+
+    src_uvs, src_uvs_mapped, tgt_uvs, wi_cutoff = sampling.calculate_compensation(
+        config, projection_name, side)
+
+    comp = np.count_nonzero(wi_cutoff) / float(len(wi_cutoff) + 1)
+
+    source_population, hemisphere = config.recipe.get_projection(
+        projection_name)[['source_population', 'hemisphere']]
+
+    src_vertices = config.recipe.projections_mapping[source_population]['vertices']
+    tgt_vertices = config.recipe.projections_mapping[source_population][projection_name]['vertices']
+
+    name = os.path.join(ctx.obj['output'],
+                        'calculate_compensation_%s_%s.png' % (projection_name, side))
+    with ctx.obj['figure'](name) as fig:
+        ax = fig.gca()
+        ax.set_aspect('equal')
+
+        display.plot_allen_coloured_flat_map(ax, config, regions='all')
+        size = 10
+
+        # src points
+        color, alpha = 'white', 0.5
+        ax.scatter(src_uvs[:, utils.Y], src_uvs[:, utils.X],
+                   marker='.', s=size, alpha=alpha, color=color)
+
+        # all
+        color, alpha = 'yellow', 1
+        ax.scatter(src_uvs_mapped[:, utils.Y], src_uvs_mapped[:, utils.X],
+                   marker='.', s=size, alpha=alpha, color=color)
+
+        # used
+        color, alpha = 'green', 1
+        ax.scatter(tgt_uvs[wi_cutoff, utils.Y], tgt_uvs[wi_cutoff, utils.X],
+                   marker='.', s=size, alpha=alpha, color=color)
+
+        if utils.is_mirror(side, hemisphere):
+            src_vertices = utils.mirror_vertices_y(src_vertices, config.flat_map.center_line_2d)
+            tgt_vertices = utils.mirror_vertices_y(tgt_vertices, config.flat_map.center_line_2d)
+
+        display.draw_triangle(ax, src_vertices, color='green')
+        display.draw_triangle(ax, tgt_vertices, color='yellow')
+
+        ax.set_title('Projection: %s, %.4f times compensation' % (projection_name, 1. / comp))
+
+    print_color('Green triangle: Source region\n'
+                '   White: source sampled positions in flat map\n'
+                'Yellow triangle: Target region\n'
+                '   Yellow: source sampled in flat mapped to target region\n'
+                '   Green: source sampled in flat mapped to target region, '
+                'within the cutoff range of target region mapped cells\n'
+                )
+
+
+@cmd.command()
+@click.option('-n', '--name', 'projection_name')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.pass_context
 def projection(ctx, projection_name, side):
     '''plot projections from `projection_name` and `side`'''
     from white_matter_projections import display, micro
@@ -121,7 +184,7 @@ def projection(ctx, projection_name, side):
     allocations = (micro.load_allocations(allocations_path, config.recipe.projections_mapping)
                    .set_index('projection_name'))
 
-    name = str(os.path.join(output, 'projection_%s_%s' % (projection_name, side)))
+    name = str(os.path.join(output, 'projection_%s_%s.png' % (projection_name, side)))
     with ctx.obj['figure'](name) as fig:
         ax = fig.gca()
         ax.set_aspect('equal')

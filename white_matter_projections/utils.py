@@ -23,9 +23,11 @@ L = logging.getLogger(__name__)
 X, Y, Z = 0, 1, 2
 cX, cY, cZ, cXYZ = np.s_[:, X], np.s_[:, Y], np.s_[:, Z], np.s_[:, :3]
 XYZ = list('xyz')
+
 SIDES = ('left', 'right')
-HEMISPHERE = CategoricalDtype(categories=['ipsi', 'contra'], ordered=True)
 SIDE = CategoricalDtype(categories=SIDES, ordered=True)
+HEMISPHERES = ('ipsi', 'contra', )
+HEMISPHERE = CategoricalDtype(categories=HEMISPHERES, ordered=True)
 
 
 class Config(object):
@@ -174,7 +176,7 @@ class Config(object):
             # orientation is removed since it historically hasn't been used
             # and it's a large *object* (not an array)
             del cells['orientation']
-            write_frame(path, cells)
+            write_frame(path, cells, reset_index=False)
 
         if population_filter is not None and population_filter != 'Empty':
             categories = self.config['populations_filters'][population_filter]
@@ -225,7 +227,6 @@ def calculate_region_layer_heights(atlas, region_map, regions, layers, layer_spl
         mask = np.isin(brain_regions.raw, list(ids))
         for layer in layers:
             ph = atlas.load_data('[PH]%s' % layer).raw[mask]
-
             thickness = np.mean(ph[:, 1] - ph[:, 0])
             if layer in layer_splits:
                 for name, fraction in layer_splits[layer]:

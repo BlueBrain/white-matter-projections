@@ -26,7 +26,7 @@ setup(
         'pandas>=0.23.0',
         'projectionizer>=1.2.0.dev1',
         'pyarrow>=0.11.1',
-        'pyrsistent==0.16.1',  # newer versions don't work with py2.7
+        'pyrsistent==0.16.0',  # newer versions don't work with py2.7
         'pyyaml>=3.12',
         'requests>=2.19.1',
         'seaborn>=0.8.1',

@@ -436,9 +436,9 @@ def _append_side_to_regions_hack_ncx176(regions):
     return ret
 
 
-def get_gids_by_population(populations, get_cells, source_population):
+def get_gids_by_population(populations, get_cells, population):
     '''for a `population`, get all the gids from `cells` that are in that population'''
-    population = populations.set_index('population').loc[source_population]
+    population = populations.set_index('population').loc[population]
 
     if isinstance(population, pd.DataFrame):
         region_names = set(population.region)
@@ -566,8 +566,8 @@ def separate_source_and_targets(left_cells, right_cells, sgids, hemisphere, side
        source cells
        synapses dataframe
     '''
-    assert hemisphere in ('ipsi', 'contra', )
-    assert side in ('left', 'right', )
+    assert hemisphere in utils.HEMISPHERES
+    assert side in utils.SIDES
 
     if side == 'right':
         if hemisphere == 'ipsi':

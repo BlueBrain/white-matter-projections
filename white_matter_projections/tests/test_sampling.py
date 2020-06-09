@@ -5,11 +5,10 @@ import pandas as pd
 from bluepy.v2.index import SegmentIndex
 
 from nose.tools import ok_, eq_, assert_raises
-from white_matter_projections import sampling, utils
-from numpy.testing import assert_allclose
+from white_matter_projections import sampling, utils as white_matter_utils
+from numpy.testing import assert_allclose, assert_equal
 from pandas.testing import assert_frame_equal
-from utils import (tempdir, fake_brain_regions, fake_flat_map,
-                   )
+import utils as test_utils
 from mock import patch, Mock
 
 def _full_sample_worker_mock(min_xyzs, index_path, voxel_dimensions):
@@ -23,7 +22,7 @@ def _full_sample_worker_mock(min_xyzs, index_path, voxel_dimensions):
 
 def test__ensure_only_flatmap_segments():
     config = Mock()
-    config.flat_map = fake_flat_map()
+    config.flat_map = test_utils.fake_flat_map()
     columns = ['segment_x1', 'segment_y1', 'segment_z1',
                'segment_x2', 'segment_y2', 'segment_z2', ]
     segments = pd.DataFrame([[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, ],  # maps to 0, 0, 0 -> -1, -1
@@ -91,7 +90,7 @@ def test__full_sample_worker(patch_synapses):
 
 
 def test__dilate_region():
-    brain_regions, _ = fake_brain_regions()
+    brain_regions, _ = test_utils.fake_brain_regions()
     ret = sampling._dilate_region(brain_regions, [30, ], 1)
     ok_(30 in ret)
     # original indices exist
@@ -106,7 +105,7 @@ def test__dilate_region():
     ok_(30 in ret)
     eq_(len(ret[30]), 5 * 5 * 5)
 
-    brain_regions, _ = fake_brain_regions()
+    brain_regions, _ = test_utils.fake_brain_regions()
     brain_regions.raw[0, 0, 0] = 1
     brain_regions.raw[2, 2, 2] = 3
     brain_regions.raw[0, 1, 0] = 4
@@ -125,14 +124,14 @@ def test_sample_all():
                                (30, 'FRP', 'l3'),
                                (30, 'FRP', 'l3')],
         columns=['id', 'region', 'subregion'])
-    brain_regions, _ = fake_brain_regions()
+    brain_regions, _ = test_utils.fake_brain_regions()
 
     df = pd.DataFrame(
         np.array([[101, 201, 10., 0., 10., 0., 10., 0., 10., 31337], ]),
         columns=sampling.SEGMENT_COLUMNS)
 
     side = 'right'
-    with tempdir('test_sample_all') as tmp:
+    with test_utils.tempdir('test_sample_all') as tmp:
         index_base = os.path.join(tmp, 'fake_index_base')
         os.makedirs(os.path.join(index_base, 'FRP@left'))
         os.makedirs(os.path.join(index_base, 'FRP@right'))
@@ -154,19 +153,19 @@ def test_sample_all():
 
 
 def test_load_all_samples():
-    with tempdir('test_load_all_samples') as tmp:
-        utils.ensure_path(os.path.join(tmp, sampling.SAMPLE_PATH))
+    with test_utils.tempdir('test_load_all_samples') as tmp:
+        white_matter_utils.ensure_path(os.path.join(tmp, sampling.SAMPLE_PATH))
         path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_l1_right.feather')
         df_right = pd.DataFrame(np.array([[0, 0., 10.],
                                           [1, -10, 10.]]),
                                 columns=['tgid', 'segment_z1', 'segment_z2'])
-        utils.write_frame(path, df_right)
+        white_matter_utils.write_frame(path, df_right)
 
         df_left = pd.DataFrame(np.array([[0, 0., -10.],
                                          [1, -10, -10.]]),
                                columns=['tgid', 'segment_z1', 'segment_z2'])
         path = os.path.join(tmp, sampling.SAMPLE_PATH, 'Fake_l1_left.feather')
-        utils.write_frame(path, df_left)
+        white_matter_utils.write_frame(path, df_left)
 
         region_tgt = 'Fake'
         ret = sampling.load_all_samples(tmp, region_tgt)
@@ -193,42 +192,31 @@ def test__add_random_position_and_offset():
     assert_frame_equal(ret, expected, check_dtype=False)
 
 
-def test__mask_xyzs_by_vertices():
-    config = Mock()
-    config.flat_map = fake_flat_map()
-
-    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
-    xyzs = np.array([[1.1, 0.1, 0, ],
-                     [2.3, 2.3, 2.3, ],
-                     ])
-    res = sampling._mask_xyzs_by_vertices(config, vertices, xyzs, sl=slice(None))
-    eq_([True, True], list(res))
-
-    vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
-    xyzs = np.array([[1.1, 0.1, 0, ],
-                     ])
-    res = sampling._mask_xyzs_by_vertices(config, vertices, xyzs, sl=slice(None))
-    eq_([False, ], list(res))
-
-    vertices = np.array(zip([0., 2., 0.], [0., 0., 2.]))
-    xyzs = np.array([[1.1, 0.1, 0, ],
-                     ])
-    res = sampling._mask_xyzs_by_vertices(config, vertices, xyzs, sl=slice(None))
-    eq_([True, ], list(res))
-
-
-def test__mask_xyzs_by_vertices():
-    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
-    xyzs = np.array([[1.1, 0.1, 0, ],
-                     [2.3, 2.3, 2.3, ],
-                     ])
+def test__mask_xyzs_by_vertices_worker():
     from white_matter_projections.utils import in_2dtriangle
     with patch('white_matter_projections.sampling.utils') as utils:
         utils.in_2dtriangle = in_2dtriangle
         utils.Config.return_value = config = Mock()
-        config.flat_map = fake_flat_map()
-        res = sampling._mask_xyzs_by_vertices_helper('fake_config', vertices, xyzs, slice(None))
+        config.flat_map = test_utils.fake_flat_map()
+
+        vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+        xyzs = np.array([[1.1, 0.1, 0, ],
+                         [2.3, 2.3, 2.3, ],
+                         ])
+        res = sampling._mask_xyzs_by_vertices_worker('config_path', vertices, xyzs, sl=slice(None))
         eq_([True, True], list(res))
+
+        vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
+        xyzs = np.array([[1.1, 0.1, 0, ],
+                         ])
+        res = sampling._mask_xyzs_by_vertices_worker('config_path', vertices, xyzs, sl=slice(None))
+        eq_([False, ], list(res))
+
+        vertices = np.array(zip([0., 2., 0.], [0., 0., 2.]))
+        xyzs = np.array([[1.1, 0.1, 0, ],
+                         ])
+        res = sampling._mask_xyzs_by_vertices_worker('config_path', vertices, xyzs, sl=slice(None))
+        eq_([True, ], list(res))
 
 
 def test_mask_xyzs_by_vertices():
@@ -236,32 +224,37 @@ def test_mask_xyzs_by_vertices():
     xyzs = np.array([[1.1, 0.1, 0, ],
                      [2.3, 2.3, 2.3, ],
                      ])
-    from white_matter_projections.utils import in_2dtriangle
     with patch('white_matter_projections.sampling.utils') as utils:
-        utils.in_2dtriangle = in_2dtriangle
+        utils.in_2dtriangle = white_matter_utils.in_2dtriangle
         utils.Config.return_value = config = Mock()
-        config.flat_map = fake_flat_map()
-        res = sampling.mask_xyzs_by_vertices(
+        config.flat_map = test_utils.fake_flat_map()
+        res = sampling._mask_xyzs_by_vertices(
             'fake_config_path', vertices, xyzs, n_jobs=1, chunk_size=1000000)
         eq_([True, True], list(res))
 
 
 def test_calculate_constrained_volume():
-    config = Mock()
-    config.flat_map = fake_flat_map()
-    brain_regions = config.flat_map.brain_regions
-    region_id = 314159  # fake
-    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
-    ret = sampling.calculate_constrained_volume(config, brain_regions, region_id, vertices)
-    eq_(ret, 0)
+    with patch('white_matter_projections.sampling.utils') as utils:
+        utils.in_2dtriangle = white_matter_utils.in_2dtriangle
+        utils.Config.return_value = config = Mock()
+        config.flat_map = test_utils.fake_flat_map()
+        brain_regions = config.flat_map.brain_regions
+        config_path = 'fake'
 
-    region_id = 2
-    ret = sampling.calculate_constrained_volume(config, brain_regions, region_id, vertices)
-    eq_(ret, 10.)  # 10 voxels of 1 unit each
+        vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
 
-    vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
-    ret = sampling.calculate_constrained_volume(config, brain_regions, region_id, vertices)
-    eq_(ret, 5.)  # removes 5, compared to above
+        region_id = 314159  # fake
+        ret = sampling.calculate_constrained_volume(config_path, brain_regions, region_id, vertices)
+        eq_(ret, 0)
+
+        region_id = 2
+        ret = sampling.calculate_constrained_volume(config_path, brain_regions, region_id, vertices)
+        eq_(ret, 10.)  # 10 voxels of 1 unit each
+
+        vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
+        ret = sampling.calculate_constrained_volume(config_path, brain_regions, region_id, vertices)
+        eq_(ret, 5.)  # removes 5, compared to above
+
 
 def test__pick_syns():
     np.random.seed(37)
@@ -280,9 +273,12 @@ def test__pick_syns():
 
 def test__subsample_per_source():
     config = Mock()
-    config.flat_map = fake_flat_map()
-    config.atlas.load_data.return_value, _ = fake_brain_regions()
-
+    config.config_path = 'fake'
+    config.flat_map = test_utils.fake_flat_map()
+    config.atlas.load_data.return_value, _ = test_utils.fake_brain_regions()
+    config.recipe.get_projection.return_value = projection = Mock()
+    projection.source_population = 'source_population0'
+    config.recipe.projections_mapping = test_utils.fake_projection_mapping()
 
     columns = ['segment_x1', 'segment_y1', 'segment_z1',
                'segment_x2', 'segment_y2', 'segment_z2',
@@ -298,16 +294,27 @@ def test__subsample_per_source():
                           'right': pd.DataFrame(data, columns=columns),
                           },
                }
-    projection_name = 'projection_name'
+    projection_name = 'projection0'
     side = 'left'
     region_tgt = 'region_tgt'
     hemisphere = 'contra'
 
-    with tempdir('test__subsample_per_source') as output:
+    def _pick_candidate_synapse_locations_mock(*args, **kwargs):
+        count = kwargs['syns_count']
+        ret = pd.DataFrame([[0, 2, ]] * count,
+                           columns=['section_id', 'segment_id', ])
+
+        return ret
+
+    with test_utils.tempdir('test__subsample_per_source') as output:
         output_path = os.path.join(output, sampling.SAMPLE_PATH, side, '%s_%s.feather' % (projection_name, region_tgt))
 
-        with patch('white_matter_projections.sampling.mask_xyzs_by_vertices') as mask_xyzs:
-            mask_xyzs.return_value = np.array([True], dtype=bool)
+        with patch('white_matter_projections.sampling._pick_candidate_synapse_locations') as syn_locations, \
+            patch('white_matter_projections.sampling.utils.Config') as mock_config:
+
+            mock_config.return_value = config
+
+            syn_locations.side_effect = _pick_candidate_synapse_locations_mock
             np.random.seed(37)
 
             vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
@@ -322,7 +329,7 @@ def test__subsample_per_source():
             eq_(syn_count, 1)  # int((0.14 + 0.15) * 5.) == 1
 
             ok_(os.path.exists(output_path))
-            res = utils.read_frame(output_path)
+            res = white_matter_utils.read_frame(output_path)
             eq_(len(res), 1)  # int((0.14 + 0.15) * 5.) == 1
 
             #already sampled, file exists
@@ -343,8 +350,92 @@ def test__subsample_per_source():
             eq_(syn_count, 5)  # int(1. * 5.), where 5 is the volume
 
             ok_(os.path.exists(output_path))
-            res = utils.read_frame(output_path)
+            res = white_matter_utils.read_frame(output_path)
             eq_(len(res), 5)  # int(1. * 5.), where 5 is the volume
 
 
+def test__pick_candidate_synapse_locations_by_function():
+    np.random.seed(37)
+
+    columns = ['segment_x1', 'segment_y1', 'segment_z1',
+               'segment_x2', 'segment_y2', 'segment_z2',
+               'segment_offset', 'segment_length', 'section_id', 'segment_id', 'tgid', ]
+    data = [[0.0, 0.0, 0.0,
+             1.0, 1.0, 1.0,
+             0.1, 10, 1, 1, 1],
+            ]
+    segment_samples = pd.DataFrame(data, columns=columns)
+
+    mask_function = lambda(samples): [True, ] * len(samples)
+    ret = sampling._pick_candidate_synapse_locations_by_function(mask_function,
+                                                                 segment_samples,
+                                                                 syns_count=1,
+                                                                 min_to_pick=1,
+                                                                 times=1)
+    ok_(isinstance(ret, pd.DataFrame))
+    eq_(len(ret), 1)
+
+    mask_function = lambda(samples): [False, ] * len(samples)
+    ret = sampling._pick_candidate_synapse_locations_by_function(mask_function,
+                                                                 segment_samples,
+                                                                 syns_count=1,
+                                                                 min_to_pick=1,
+                                                                 times=1)
+    eq_(len(ret), 0)
+
+
+def test__mask_xyzs_by_compensation():
+    config_path = 'Mocked'
+    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+    xyzs = np.array([[1.1, 0.1, 0, ],
+                     [2.3, 2.3, 2.3, ],
+                     ])
+    sl = slice(None)
+    with patch('white_matter_projections.sampling.utils') as utils:
+        utils.Config.return_value = config = Mock()
+        config.flat_map = test_utils.fake_flat_map()
+
+        with test_utils.tempdir('test__mask_xyzs_by_compensation') as tmp:
+            src_uvs_path = os.path.join(tmp, 'src_uvs_path.csv')
+            pd.DataFrame({'u': [1., 2, 3,],
+                          'v': [1., 2, 3,]}).to_csv(src_uvs_path, index=False)
+            ret = sampling._mask_xyzs_by_compensation_worker(config_path, src_uvs_path,
+                                                             xyzs, sl, sigma=10)
+            assert_equal(ret, [True, True])
+
+            ret = sampling._mask_xyzs_by_compensation_worker(config_path, src_uvs_path,
+                                                             xyzs, sl, sigma=1)
+            assert_equal(ret, [False, True])
+
+
+def test__calculate_compensation():
+    config = Mock()
+    config.flat_map = test_utils.fake_flat_map()
+    config.atlas.load_data.return_value, _ = test_utils.fake_brain_regions()
+    config.recipe.projections_mapping = test_utils.fake_projection_mapping()
+
+    src_ids = [2, 30]
+    tgt_locations = np.array([[1.1, 0.1, 0, ],
+                              [2.3, 2.3, 2.3, ],
+                              ])
+    side = 'left'
+    hemisphere = 'ipsi'
+    source_population = 'source_population0'
+    projection_name = 'projection0'
+    src_uvs, src_uvs_mapped, tgt_uvs, within_cutoff = sampling._calculate_compensation(
+        config, src_ids, tgt_locations, side, hemisphere, source_population, projection_name)
+    assert_allclose(src_uvs, src_uvs_mapped)  # the test mapping is the identity one
+    assert_equal(tgt_uvs, np.array([[1.1, 0. ], [2.3, 2.3]]))
+
+    assert_equal(within_cutoff, [True, True, ])
+
+
+def test_compensation_paths():
+    ret = sampling.get_compensation_path('output', 'left')
+    eq_(ret, 'output/density_compensation_left.csv')
+    ret = sampling.get_compensation_src_uvs_path('output', 'right', 'projection_name')
+    eq_(ret, 'output/COMPENSATION/projection_name_right.csv')
+
+#def test_calculate_compensation():
+#    ret = sampling.calculate_compensation(config, projection_name, side, sample_size=10000)
 #def subsample_per_target

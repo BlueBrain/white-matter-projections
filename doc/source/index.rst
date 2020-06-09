@@ -8,6 +8,7 @@ Contents:
 
    flatmap
    config
+   concepts
 
 
 Indices and tables

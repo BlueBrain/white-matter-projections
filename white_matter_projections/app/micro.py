@@ -6,6 +6,7 @@ import sys
 
 import click
 import pandas as pd
+import numpy as np
 
 from white_matter_projections import utils
 from white_matter_projections.app.utils import print_color, REQUIRED_PATH
@@ -44,6 +45,44 @@ def allocate(ctx):
 
 
 @cmd.command()
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
+@click.pass_context
+def calculate_compensation(ctx, side):
+    '''Calculate density compensation for all projections'''
+    from white_matter_projections import sampling
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    compensation_path = sampling.get_compensation_path(output, side)
+    if os.path.exists(compensation_path):
+        print_color('Already have created %s, delete it if it needs to be recreated',
+                    compensation_path, color='red')
+        return
+
+    utils.ensure_path(os.path.join(output, sampling.COMPENSATION_PATH))
+
+    projection_names = config.recipe.projections.projection_name.to_list()
+
+    compensation = []
+    for projection_name in projection_names:
+        L.debug('Doing compensation for %s[%s]', projection_name, side)
+        _, src_uvs_mapped, _, within_cutoff = sampling.calculate_compensation(config,
+                                                                              projection_name,
+                                                                              side)
+        compensation.append((side, np.count_nonzero(within_cutoff), len(within_cutoff)))
+
+        df = pd.DataFrame(src_uvs_mapped, columns=['u', 'v'])
+        df.to_csv(sampling.get_compensation_src_uvs_path(output, side, projection_name),
+                  index=False)
+
+    compensation = pd.DataFrame(compensation,
+                                columns=['side', 'within_cutoff', 'total'],
+                                index=projection_names)
+
+    compensation.index.name = 'projection_name'
+    compensation.to_csv(compensation_path)
+
+
+@cmd.command()
 @click.option('-p', '--population', 'target_population', required=True)
 @click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
@@ -70,15 +109,18 @@ def sample_all(ctx, target_population, side):
 @cmd.command()
 @click.option('-p', '--population', 'target_population', required=True)
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
-@click.option('-r', '--reverse', is_flag=True,
+@click.option('--reverse', is_flag=True,
               help='Perform sampling of projections in reverse order')
+@click.option('--use-compensation', is_flag=True, default=False,
+              help='Perform compensation of density')
 @click.pass_context
-def subsample(ctx, target_population, side, reverse):
+def subsample(ctx, target_population, side, reverse, use_compensation):
     '''create candidate synapses from full set of segments created by sample_all'''
     from white_matter_projections import sampling
     config, output = ctx.obj['config'], ctx.obj['output']
 
-    sampling.subsample_per_target(output, config, target_population, side, reverse)
+    sampling.subsample_per_target(
+        output, config, target_population, side, reverse, use_compensation)
 
 
 @cmd.command()

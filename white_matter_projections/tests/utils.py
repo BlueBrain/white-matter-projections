@@ -173,6 +173,43 @@ def fake_flat_map():
                                 center_line_2d,
                                 center_line_3d[2])
 
+def fake_allocations():
+    return {'source_population0': {'projection0': np.arange(10),
+                                   'projection1': np.arange(10, 20),
+                                   },
+            'source_population1': {'projection0': np.arange(20, 30),
+                                   'projection1': np.arange(30, 40),
+                                   },
+            }
+
+
+def fake_projection_mapping():
+    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+
+    ret = {'source_population0': {'projection0': {'target_population': 'target00',
+                                                  'variance': 1.,
+                                                  'vertices': vertices,
+                                                  },
+                                  'projection1': {'target_population': 'target01',
+                                                  'variance': 1.,
+                                                  'vertices': vertices,
+                                                  },
+                                  'vertices': vertices,
+                                  },
+           'source_population1': {'projection0': {'target_population': 'target10',
+                                                  'variance': 1.,
+                                                  'vertices': vertices,
+                                                  },
+                                  'projection1': {'target_population': 'target11',
+                                                  'variance': 1.,
+                                                  'vertices': vertices,
+                                                  },
+                                  'vertices': vertices,
+                                  },
+           }
+    return ret
+
+
 
 '''Below are several utils functions used for consistency checks of the methods from
 ptypes_generator.py. These functions are only run by unit tests.

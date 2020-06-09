@@ -265,6 +265,12 @@ class MacroConnections(object):
             ret.loc[tgt][src] = df.density.sum()
         return ret
 
+    def get_projection(self, projection_name):
+        '''return projection Series for `projection_name`'''
+        projection = self.projections.set_index('projection_name').loc[projection_name]
+        assert isinstance(projection, pd.Series), 'Should only have a single projection'
+        return projection
+
     def _serialize(self, base_path):
         '''serialize recipe to `base_path`'''
         utils.ensure_path(base_path)
@@ -510,6 +516,7 @@ def _parse_projections(projections, pop_cat):
         vertices = np.array(zip(node['mapping_coordinate_system']['y'],
                                 node['mapping_coordinate_system']['x'],))
         return vertices
+
     data = []
     projections_mapping = defaultdict(dict)
     missing_targets = []
@@ -530,10 +537,14 @@ def _parse_projections(projections, pop_cat):
             target_layer_fraction = target['target_layer_profiles'][0]['fraction']
 
             mapping = target['presynaptic_mapping']
-            assert mapping['mapping_coordinate_system']['base_system'] == 'Allen Dorsal Flatmap', \
-                'Currently only handle Allen Dorsal Flatmap'
+
+            # TODO: merge https://bbpcode.epfl.ch/code/#/c/48904/
+            # assert (mapping['mapping_coordinate_system']['base_system'] ==
+            #         'Allen Dorsal Flatmap'), \
+            #     'Currently only handle Allen Dorsal Flatmap'
             assert projection_name not in projections_mapping[source], \
                 'Duplicate projection target: %s -> %s' % (source, projection_name)
+
             projections_mapping[source][projection_name] = {
                 'variance': mapping['mapping_variance'],
                 'vertices': get_vertices(mapping),

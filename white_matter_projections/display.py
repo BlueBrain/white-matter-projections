@@ -119,7 +119,7 @@ def plot_xyz_to_flat(ax, mapper, xyz, color='black', alpha=0.05):
     return uvs
 
 
-def draw_region_outlines(ax, region_map, flat_id, regions, labels='all', only_right=False):
+def draw_region_outlines(ax, region_map, flat_id, regions, midline, labels='all', only_right=False):
     '''draws the outlines of the specified regions
 
     Args:
@@ -140,12 +140,9 @@ def draw_region_outlines(ax, region_map, flat_id, regions, labels='all', only_ri
     region2ids = {region: list(region_map.find(region, 'acronym', with_descendants=True))
                   for region in regions}
 
-    midline = flat_id.shape[1] // 2
     if only_right:
         flat_id = flat_id[:, midline:]
         midline = 0
-    else:
-        midline = flat_id.shape[1] // 2
 
     for region, ids in region2ids.items():
         mask = np.isin(flat_id, list(ids))
@@ -155,6 +152,7 @@ def draw_region_outlines(ax, region_map, flat_id, regions, labels='all', only_ri
             idx = np.array(np.nonzero(mask)).T
             idx = idx[midline < idx[:, 1]]
             x, y = np.mean(idx, axis=0)
+
             ax.text(y, x, region,  # note inverse index
                     horizontalalignment='center', verticalalignment='center',
                     color='white')
@@ -185,7 +183,7 @@ def draw_module_flat_map(ax, id2color, flat_map, regions, only_right=False):
     ax.imshow(flat_id[:, midline:])
 
     draw_region_outlines(ax, flat_map.region_map, flat_region_id, regions,
-                         only_right=only_right)
+                         flat_map.center_line_2d, only_right=only_right)
 
     return midline
 
@@ -227,8 +225,7 @@ def draw_triangle_map(ax, config, projection_name, side):
     '''for `projection_name`, plot the target synapse locations'''
     # pylint: disable=too-many-locals
     mapper = mapping.CommonMapper.load_default(config)
-    projection = config.recipe.projections.set_index('projection_name').loc[projection_name]
-    assert isinstance(projection, pd.Series)
+    projection = config.recipe.get_projection(projection_name)
 
     source_populations = (config.recipe.populations.set_index('population')
                           .loc[projection.source_population])
@@ -266,9 +263,7 @@ def draw_projection(ax, config, allocations, syns, projection_name, side):
     '''for `projection_name`, plot the target synapse locations'''
     # pylint: disable=too-many-locals
     mapper = mapping.CommonMapper.load_default(config)
-    hemisphere = (config.recipe
-                  .projections.set_index('projection_name').loc[projection_name].hemisphere
-                  )
+    hemisphere = config.recipe.get_projection(projection_name).hemisphere
 
     left_cells, right_cells = micro.partition_cells_left_right(config.get_cells(),
                                                                config.flat_map.center_line_3d)
