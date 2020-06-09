@@ -156,11 +156,6 @@ def test_population2region():
 #    ok_(False)
 
 
-def test_find_executable():
-    ok_('bin/sh' in utils.find_executable('sh'))
-    eq_(None, utils.find_executable('a_fake_executable_which_does_not_exist'))
-
-
 def test_read_write_frame():
     data = np.arange(10)
     df = pd.DataFrame({'a': data, 'b': data + 25})
@@ -280,3 +275,23 @@ def test_calculate_region_layer_heights():
     layer_splits = {'1': [('1a', 0.25), ('1b', 0.75)]}
     ret = utils.calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits)
     eq_(ret, {'one': {'1a': 0.25, '1b': 0.75}})
+
+
+def test_hierarchy_2_df():
+    ret = utils.hierarchy_2_df(test_utils.HIER_DICT)
+    eq_(ret.index.name, 'id')
+    eq_(np.count_nonzero(ret.acronym.str.contains('ECT')), 7) # 6 layers and the parent region
+    eq_(set(ret.columns), {'acronym', 'name', 'parent_id'})
+
+
+def test_get_acronym_volumes():
+    brain_regions, region_map = test_utils.fake_brain_regions()
+    ret = utils.get_acronym_volumes(['one'], brain_regions, region_map)
+    eq_(ret.loc['one'].volume, 14.)
+    ret = utils.get_acronym_volumes(['one', 'two', 'twenty', 'thirty'], brain_regions, region_map)
+    eq_(len(ret), 4)
+    eq_(ret.loc['one'].volume, 14.)
+    eq_(ret.loc['two'].volume, 10.)
+    eq_(ret.loc['twenty'].volume, 4.)
+    eq_(ret.loc['thirty'].volume, 4.)
+

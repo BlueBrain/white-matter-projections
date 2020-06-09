@@ -229,7 +229,7 @@ def test_mask_xyzs_by_vertices():
         utils.Config.return_value = config = Mock()
         config.flat_map = test_utils.fake_flat_map()
         res = sampling._mask_xyzs_by_vertices(
-            'fake_config_path', vertices, xyzs, n_jobs=1, chunk_size=1000000)
+            xyzs, 'fake_config_path', vertices, n_jobs=1, chunk_size=1000000)
         eq_([True, True], list(res))
 
 

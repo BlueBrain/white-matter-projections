@@ -265,6 +265,11 @@ class MacroConnections(object):
             ret.loc[tgt][src] = df.density.sum()
         return ret
 
+    def get_population(self, population_name):
+        '''return population for `population_name`'''
+        population = self.populations.set_index('population').loc[population_name]
+        return population
+
     def get_projection(self, projection_name):
         '''return projection Series for `projection_name`'''
         projection = self.projections.set_index('projection_name').loc[projection_name]

@@ -379,9 +379,9 @@ def _mask_xyzs_by_compensation(xyzs, config_path, src_uvs_path, sigma,
     '''parallize find `xyzs` that are in `vertices`
 
     Args:
+        xyzs(array of positions): one position per row
         config_path(str): path to config file
         src_uvs_path(str): path to csv file w/ the flat-mapped source fibers used in compensation
-        xyzs(array of positions): one position per row
         n_jobs(int): number of jobs
         chunk_size(int): size of the chunks to be passed off
     '''
@@ -429,13 +429,13 @@ def _mask_xyzs_by_vertices_worker(config_path, vertices, xyzs, sl):
     return mask
 
 
-def _mask_xyzs_by_vertices(config_path, vertices, xyzs, n_jobs=36, chunk_size=1000000):
+def _mask_xyzs_by_vertices(xyzs, config_path, vertices, n_jobs=36, chunk_size=1000000):
     '''parallize find `xyzs` that are in `vertices`
 
     Args:
+        xyzs(array of positions): one position per row
         config_path(str): path to config file
         vertices(array): vertices in flat_space such where the rows of `xyzs` are masked to
-        xyzs(array of positions): one position per row
         n_jobs(int): number of jobs
         chunk_size(int): size of the chunks to be passed off
     '''

@@ -1,5 +1,6 @@
 '''general analysis'''
 from __future__ import print_function
+import json
 import logging
 import os
 from glob import glob
@@ -254,3 +255,49 @@ def triangle_map(ctx, projection_name, side):
     print_color('Green triangle: Source region\n'
                 'Yellow triangle: Target region'
                 )
+
+
+@cmd.command()
+@click.option('-n', '--name', 'projection_name')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.pass_context
+def assignment_validation(ctx, projection_name, side):
+    '''Compare the achieved density post assignment to the desired density'''
+    from white_matter_projections import micro
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    with open(config.atlas.fetch_hierarchy(), 'r') as fd:
+        df = utils.hierarchy_2_df(json.load(fd))
+
+    brain_regions = config.atlas.load_data('brain_regions')
+
+    path = os.path.join(output, micro.ASSIGNMENT_PATH, side, '%s.feather' % projection_name)
+    new = utils.read_frame(path)
+    new['region_id'] = brain_regions.lookup(new[utils.XYZ].to_numpy())
+    new = new.join(df.acronym, on='region_id')
+
+    densities = config.recipe.calculate_densities(
+        utils.normalize_layer_profiles(config.region_layer_heights,
+                                       config.recipe.layer_profiles))
+
+    region_format = config.region_subregion_format
+    densities = densities.query('projection_name == @projection_name').copy()
+    densities = densities[['region_tgt', 'subregion_tgt', 'density']]
+    densities['acronym'] = densities.apply(
+        lambda r: region_format.format(region=r.region_tgt, subregion=r.subregion_tgt).lstrip('@'),
+        axis=1)
+
+    region_volumes = utils.get_acronym_volumes(list(densities.acronym.unique()),
+                                               brain_regions,
+                                               config.atlas.load_region_map())
+
+    volumes = (new.acronym.value_counts() / region_volumes.volume)
+    volumes.name = 'desired_density'
+    densities = densities.join(volumes, on='acronym')
+    densities['absolute_difference'] = np.abs(
+        (densities.density - densities.desired_density) / densities.desired_density)
+
+    print_color('Densities')
+    print(densities
+          .sort_values('absolute_difference', ascending=False)
+          .to_string(max_rows=None))

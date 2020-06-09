@@ -1,4 +1,4 @@
-'''utils'''
+'''useful utils'''
 import collections
 import hashlib
 import itertools as it
@@ -445,10 +445,42 @@ def population2region(populations, population_name):
     return populations.iloc[0].region
 
 
-def find_executable(executable):
-    '''use PATH to look for `executable`'''
-    for path in os.environ['PATH'].split(':'):
-        path = os.path.join(path, executable)
-        if os.path.isfile(path) and os.access(path, os.X_OK):
-            return path
-    return None
+def hierarchy_2_df(content):
+    '''convert a AIBS hierarchy.json file into a DataFrame
+    Args:
+        content(str): content of heirarchy.json file
+
+    Returns:
+        pd.DataFrame with columns ['acronym', 'id', 'name', 'parent_id']
+    '''
+    if 'msg' in content:
+        if len(content['msg']) > 1:
+            raise Exception("Unexpected JSON layout (more than one 'msg' child)")
+        content = content['msg'][0]
+
+    def recurse(node, parent_id, res):
+        '''helper to recursively add all children to `res`'''
+        res.append((node['acronym'], node['id'], node['name'], parent_id))
+        if 'children' in node:
+            for child_node in node['children']:
+                recurse(child_node, node['id'], res)
+
+    res = [('root', 0, 'root', -1)]
+    recurse(content, 0, res)
+
+    ret = pd.DataFrame(res, columns=['acronym', 'id', 'name', 'parent_id'])
+    assert len(ret) == len(ret.id.unique()), 'Duplicate ids in hierarchy'
+    return ret.set_index('id')
+
+
+def get_acronym_volumes(acronyms, brain_regions, region_map):
+    '''
+    Returns:
+        pd.DataFrame with index `acronyms` with values for `volume`
+    '''
+    ret = []
+    for acronym in acronyms:
+        ids = region_map.find(acronym, 'acronym', with_descendants=True)
+        count = np.count_nonzero(np.isin(brain_regions.raw, list(ids)))
+        ret.append((acronym, count * brain_regions.voxel_volume))
+    return pd.DataFrame(ret, columns=['acronym', 'volume']).set_index('acronym')
