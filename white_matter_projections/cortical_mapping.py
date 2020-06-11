@@ -32,7 +32,7 @@ from white_matter_projections.utils import X, Y, Z, cX, cY, cZ
 
 L = logging.getLogger(__name__)
 
-NEIGHBORS = np.array(list(set(it.product([-1, 0, 1], repeat=3)) - {(0, 0, 0), }))
+NEIGHBORS_3D = np.array(list(set(it.product([-1, 0, 1], repeat=3)) - {(0, 0, 0), }))
 
 ORIGINS = ['ox', 'oy', 'oz', ]
 BETAS = ['fx', 'fy', 'fz', ]
@@ -235,14 +235,14 @@ def _create_flatmap_from_xy(locations, brain_regions, flat_xy):
         brain_regions(3D np.array): labeled brain regions
         flat_xy(np.array(Nx3): containing coordinates in flat_map space of locations
     '''
-    nz = np.count_nonzero(flat_xy) // 2
+    nz = np.count_nonzero(flat_xy[:, 0] >= 0)
     if len(locations) > nz:
         L.debug('did not find values for %d of %d voxels (%0.2f percent)',
                 len(locations) - nz, len(locations),
                 (len(locations) - nz) / len(locations))
 
-    ret = np.zeros(shape=tuple(brain_regions.raw.shape) + (2, ), dtype=np.int)
-    ret[tuple(locations.T)] = flat_xy.astype(int)
+    ret = np.full(shape=tuple(brain_regions.raw.shape) + (2, ), fill_value=-1, dtype=np.int)
+    ret[tuple(locations.T)] = np.round(flat_xy).astype(int)
     ret = brain_regions.with_data(ret)
     return ret
 
@@ -261,20 +261,21 @@ def _backfill_voxel_to_flat_mapping(flat_map,
     center_line_idx = center_line_3d // brain_regions.voxel_dimensions[Z]
 
     count = 0
-    for ids in wanted_ids.values():
+    for name, ids in wanted_ids.items():
         idx = np.nonzero(np.isin(brain_regions.raw, list(ids)))
         missing_rows = flat_map.raw[idx]
         missing_rows = np.nonzero((missing_rows[:, 0] <= 0) & (missing_rows[:, 1] <= 0))[0]
+        L.debug('Region %s is missing %d of %d voxels', name, len(missing_rows), len(idx[0]))
         idx = np.array(idx).T
         for missing_row in missing_rows:
             miss = tuple(idx[missing_row, :])
 
-            neighbors = NEIGHBORS + miss
+            neighbors = NEIGHBORS_3D + miss
             in_bounds = np.all((neighbors >= 0) & (neighbors < flat_map.raw.shape[:3]), axis=1)
             neighbors = neighbors[in_bounds]
             neighbor_values = flat_map.raw[tuple(neighbors.T)]
 
-            neighbor_values = neighbor_values[(neighbor_values[:, 0] > 0) |
+            neighbor_values = neighbor_values[(neighbor_values[:, 0] > 0) &
                                               (neighbor_values[:, 1] > 0)]
 
             if miss[Z] <= center_line_idx:  # 'left'
@@ -291,6 +292,67 @@ def _backfill_voxel_to_flat_mapping(flat_map,
     L.info('Backfill updated %d values', count)
 
 
+def _find_histogram_idx(needed_count, counts, idxs):
+    '''get `needed_count from histogram `counts`, map to idxs
+
+    _, counts, idxs = np.unique(..., return_inverse=True, return_counts=True)
+    '''
+    count_idx = np.argsort(counts, kind='stable')
+
+    ret = []
+    while needed_count > 0:
+        i = len(count_idx) - 1
+        last_count = counts[count_idx[-1]]
+        while i >= 0 and counts[count_idx[i]] == last_count and needed_count > 0:
+            counts[count_idx[i]] -= 1
+
+            idx = np.argmax(idxs == count_idx[i])
+            ret.append(idx)
+            idxs[idx] = -1
+
+            needed_count -= 1
+            i -= 1
+
+    return ret
+
+
+def _clamp_known_values(view_lookup, cortical_paths, flat_map):
+    '''fill in flat map locations from the known AIBS data
+
+    Values are filled in by taking the original path, and finding voxels
+    that point to the same point to other flat map locations, and replacing
+    those.  Only values that don't exist on the flat map are checked and
+    replaced if none exist.
+
+    Note: inplace modification of flat_map
+    '''
+    # pylint: disable=too-many-locals
+    known_idx = set(zip(*np.nonzero(view_lookup >= 0)))
+
+    flat_idx = flat_map.raw[:, :, :, 0] >= 0
+    missing = known_idx - set(map(tuple, np.unique(flat_map.raw[flat_idx], axis=0)))
+
+    for idx in missing:
+        path = cortical_paths[view_lookup[idx]]
+        path = path[path.nonzero()]
+        path_len = len(path)
+
+        if path_len < 2:
+            continue
+
+        path = np.unravel_index(path, flat_map.shape)
+        _, idxs, counts = np.unique(flat_map.raw[path],
+                                    axis=0,
+                                    return_inverse=True,
+                                    return_counts=True)
+
+        total = np.sum(counts)
+        needed_count = np.round(total * float(path_len) / (total + path_len))
+        to_replace = _find_histogram_idx(needed_count, counts, idxs)
+
+        flat_map.raw[tuple(np.array(path).T[to_replace, :].T)] = idx
+
+
 def create_cortical_to_flatmap(cortical_map_paths,
                                regions,
                                backfill=True,
@@ -303,11 +365,10 @@ def create_cortical_to_flatmap(cortical_map_paths,
                   for region in regions}
 
     brain_regions = cortical_map_paths.load_brain_regions()
-    cortical_view_lookup = cortical_map_paths.load_cortical_view_lookup()
+    view_lookup = cortical_map_paths.load_cortical_view_lookup()
+    cortical_paths = cortical_map_paths.load_cortical_paths()
 
-    path_fits = _fit_paths(brain_regions.raw,
-                           cortical_view_lookup,
-                           cortical_map_paths.load_cortical_paths())
+    path_fits = _fit_paths(brain_regions.raw, view_lookup, cortical_paths)
 
     locations = np.array(np.nonzero(np.isin(
         brain_regions.raw,
@@ -324,12 +385,13 @@ def create_cortical_to_flatmap(cortical_map_paths,
     if chunks is None:
         chunks = p._effective_n_jobs()  # pylint: disable=protected-access
 
-    worker = delayed(_voxel2flat_worker)
-    flat_xy = p(worker(cortical_map_paths, regions, path_fits, locs)
+    flat_xy = p(delayed(_voxel2flat_worker)(cortical_map_paths, regions, path_fits, locs)
                 for locs in np.array_split(locations, chunks, axis=0))
 
     flat_xy = np.vstack(flat_xy)
     flat_map = _create_flatmap_from_xy(locations, brain_regions, flat_xy)
+
+    _clamp_known_values(view_lookup, cortical_paths, flat_map)
 
     if backfill:
         _backfill_voxel_to_flat_mapping(flat_map,

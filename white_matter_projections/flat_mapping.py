@@ -32,7 +32,7 @@ class FlatMap(object):
         self.center_line_2d = center_line_2d
         self.center_line_3d = center_line_3d
 
-        self.flat_idx = (flat_map.raw[:, :, :, 0] > 0) | (flat_map.raw[:, :, :, 1] > 0)
+        self.flat_idx = (flat_map.raw[:, :, :, 0] >= 0) | (flat_map.raw[:, :, :, 1] >= 0)
         self.shape = np.max(flat_map.raw[self.flat_idx], axis=0) + 1
 
     @classmethod

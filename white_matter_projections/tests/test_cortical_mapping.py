@@ -56,7 +56,7 @@ def test_create_cortical_to_flatmap():
 
     # test backfill
     wanted_ids = {'two': [2]}
-    v2f.raw[1, 0, 0, :] = 0  # this should be filled in with the original value
+    v2f.raw[1, 0, 0, :] = -1  # this should be filled in with the original value
     cortical_mapping._backfill_voxel_to_flat_mapping(v2f,
                                                      CORTICAL_MAP.load_brain_regions(),
                                                      CORTICAL_MAP.center_line_2d,
@@ -83,3 +83,47 @@ def test__voxel2flat_helper():
     locs = np.array([[2, 1, 2], ])
     v2f = cortical_mapping._voxel2flat_worker(CORTICAL_MAP, regions, path_fits, locs)
     assert_allclose(v2f, [[2, 2, ], ])
+
+
+def test__find_histogram_idx():
+    counts = np.array([10, 0, 0, 0])
+    idxs = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ])
+    needed_count = 5
+    eq_(cortical_mapping._find_histogram_idx(needed_count, counts, idxs), [0, 1, 2, 3, 4])
+
+    counts = np.array([10, 10, 0, 0, 0])
+    idxs = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ])
+    needed_count = 5
+    eq_(cortical_mapping._find_histogram_idx(needed_count, counts, idxs), [10, 0, 11, 1, 12])
+
+    counts = np.array([1, 2, 3, 4, 5, 4, 3, 2, 1, ])
+    idxs = np.array([0,
+                     1, 1,
+                     2, 2, 2,
+                     3, 3, 3, 3,
+                     4, 4, 4, 4, 4,  # i = 10
+                     5, 5, 5, 5,
+                     6, 6, 6,
+                     7, 7,
+                     8, ])
+    needed_count = 8
+    eq_(cortical_mapping._find_histogram_idx(needed_count, counts, idxs),
+        [10, 11, 15, 6, 12, 16, 7, 19])
+
+
+def test__clamp_known_values():
+    regions = ['two', 'twenty', 'thirty', ]
+    flat_map = cortical_mapping.create_cortical_to_flatmap(CORTICAL_MAP, regions, n_jobs=1, backfill=False)
+
+    # replace half the values point at (1,1) w/ (1, 0), and the other w/ (2, 2)
+    idx = np.nonzero(((flat_map.raw[:, :, :, 0] == 1) & (flat_map.raw[:, :, :, 1] == 1)))
+    flat_map.raw[idx] = 1, 0
+    flat_map.raw[tuple(np.array(idx).T[::2].T)] = 2, 2
+
+    view_lookup = CORTICAL_MAP.load_cortical_view_lookup()
+    cortical_paths = CORTICAL_MAP.load_cortical_paths()
+
+    cortical_mapping._clamp_known_values(view_lookup, cortical_paths, flat_map)
+    # we only replace values along the original cortical path; in this case it only
+    # intersects the linear fit paths in one place
+    eq_(np.count_nonzero(((flat_map.raw[:, :, :, 0] == 1) & (flat_map.raw[:, :, :, 1] == 1))), 2)
