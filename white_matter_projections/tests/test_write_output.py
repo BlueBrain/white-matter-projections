@@ -57,6 +57,18 @@ def test_create_synapse_data():
     df = pd.DataFrame([[1, ]], columns=['synapse_type_name', ])
     ret = wo.create_synapse_data('u_syn', dataset, df, synapse_data)
 
+    # fixed_value
+    synapse_data = {'type_1': {'physiology': {'u_hill_coefficient':
+                                              {'distribution':
+                                               {'name': 'fixed_value',
+                                                'params': {'value': 2.0}
+                                                }
+                                               }
+                                              }}}
+    df = pd.DataFrame([[1, ]], columns=['synapse_type_name', ])
+    ret = wo.create_synapse_data('u_hill_coefficient', dataset, df, synapse_data)
+    assert_allclose(ret, [2])
+
 
 def test__create_syn2_properties():
     needed_datasets = {'single_row': wo.DataSet(1, np.float32),
@@ -102,6 +114,26 @@ def test_write_syn2():
             props = h5[wo.DEFAULT_GROUP]
             ok_('delay' in props)
             eq_(list(props['delay']), [1.] * 5)
+
+    physiology = dict.fromkeys(set(wo.DATASETS) - set(['u_hill_coefficient']))
+    synapse_data = {'type_1': {'physiology': physiology}}
+
+    with tempdir('test_write_syn2') as tmp:
+        output_path = os.path.join(tmp, 'fake2.syn2')
+
+        path0 = os.path.join(tmp, '0.feather')
+        utils.write_frame(path0, df)
+
+        wo.write_syn2(output_path,
+                      [(path0, extra_properties, )],
+                      _fake_create_synapse_data,
+                      synapse_data)
+        ok_(os.path.exists(output_path))
+
+        with h5py.File(output_path, 'r') as h5:
+            props = h5[wo.DEFAULT_GROUP]
+            ok_('conductance_scale_factor' in props)
+            ok_('u_hill_coefficient' not in props)
 
 
 def test_chunk_feathers():

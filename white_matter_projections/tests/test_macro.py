@@ -5,7 +5,7 @@ from utils import (POP_CAT, RECIPE, RECIPE_TXT, REGION_MAP,
                    REGION_SUBREGION_FORMAT,
                    SUBREGION_TRANSLATION, tempdir,
                    )
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_raises
 from pandas.testing import assert_frame_equal
 
 
@@ -93,6 +93,18 @@ def test_MacroConnections():
     ret = recipe.get_target_region_density_modules(norm_layer_profiles, 'FRP', modules)
     ok_(isinstance(ret, pd.DataFrame))
     assert_allclose(ret.loc['1', 'TopLevel'], 0.08996559651848632)
+
+    synapse_types_mismatching_phys_parameters = [
+        {'name': 'type_1',
+         'physiology': [
+             {'phys_parameter': 'U'},
+             {'phys_parameter': 'D'}]},
+        {'name': 'type_2',
+         'physiology': [
+             {'phys_parameter': 'D'}]}]
+
+    with assert_raises(AssertionError):
+        macro._parse_synapse_types(synapse_types_mismatching_phys_parameters)
 
 
 def test_MacroConnections_repr():

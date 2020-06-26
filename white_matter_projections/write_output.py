@@ -38,6 +38,9 @@ DATASETS = {'connected_neurons_pre': DataSet(1, 'i8'),
             # guessing on this, not in syn2 spec
             'morpho_segment_id_post': DataSet(1, 'i8'),
             'morpho_offset_segment_post': DataSet(1, 'f'),
+
+            'conductance_scale_factor': DataSet(1, 'f'),
+            'u_hill_coefficient': DataSet(1, 'f'),
             }
 
 DATASET_PHYSIOLOGY = {
@@ -47,7 +50,14 @@ DATASET_PHYSIOLOGY = {
     'facilitation_time': 'F',
     'decay_time': 'dtc',
     'n_rrp_vesicles': 'nrrp',
+    'conductance_scale_factor': 'conductance_scale_factor',
+    'u_hill_coefficient': 'u_hill_coefficient',
 }
+
+OPTIONAL_PARAMETERS = [
+    'conductance_scale_factor',
+    'u_hill_coefficient',
+]
 
 
 def create_synapse_data(syn2_property_name, dataset, df, synapse_data):
@@ -69,7 +79,9 @@ def create_synapse_data(syn2_property_name, dataset, df, synapse_data):
         for synapse_type_name, frame in df.reset_index().groupby('synapse_type_name'):
             dist = synapse_data['type_' + str(int(synapse_type_name))]
             dist = dist['physiology'][DATASET_PHYSIOLOGY[prop]]['distribution']
-            assert dist['name'] in ('uniform_int', 'truncated_gaussian'), 'unknown distribution'
+            assert dist['name']\
+                in ('uniform_int', 'truncated_gaussian', 'fixed_value'),\
+                'unknown distribution'
 
             if dist['name'] == 'uniform_int':
                 low, high = dist['params']['min'], dist['params']['max']
@@ -95,6 +107,8 @@ def create_synapse_data(syn2_property_name, dataset, df, synapse_data):
                     rejected = np.nonzero((np.abs(data - mean) > TRUNCATED_MAX_STDDEV * std) |
                                           (data <= 0.))
                 ret[frame.index] = data
+            elif dist['name'] == 'fixed_value':
+                ret[frame.index] = dist['params']['value']
         return ret
 
     if syn2_property_name == 'connected_neurons_pre':
@@ -155,8 +169,17 @@ def write_syn2(output_path, feather_paths, synapse_data_creator, synapse_data,
         needed_datasets(dict): name ->
 
     '''
+    # pylint: disable=too-many-locals
     if needed_datasets is None:
-        needed_datasets = DATASETS
+        needed_datasets = DATASETS.copy()
+
+    # Remove missing optional parameters from the needed datasets
+    if synapse_data:
+        props = synapse_data[list(synapse_data)[0]]['physiology'].keys()
+        not_found_optional = set(OPTIONAL_PARAMETERS) - set(props)
+        for key in not_found_optional:
+            L.info('Optional parameter %s not given', key)
+            needed_datasets.pop(key)
 
     with h5py.File(output_path, 'w') as h5:
         datasets = _create_syn2_properties(h5, needed_datasets, chunk_size)

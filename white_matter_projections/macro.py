@@ -640,4 +640,13 @@ def _parse_synapse_types(synapse_types):
                 - std: 0.26
         - ...
     '''
+    def get_phys_parameters(synapse_type):
+        '''return phys_parameters for a synapse type'''
+        return {physiology['phys_parameter'] for physiology in synapse_type['physiology']}
+
+    if len(synapse_types) > 1:
+        difference = set.symmetric_difference(*[get_phys_parameters(t) for t in synapse_types])
+        assert not difference, \
+            'phys_parameter(s) not defined in all synapse types: %s' % ', '.join(difference)
+
     return synapse_types
