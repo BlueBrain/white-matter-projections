@@ -25,7 +25,7 @@ setup(
         'joblib>=0.13.1',
         'matplotlib>=2.0.0,<3.0.0',
         'pandas>=0.23.0',
-        'projectionizer>=1.1.0.dev3',
+        'projectionizer>=1.2.0.dev1',
         'pyarrow>=0.11.1',
         'pyyaml>=3.12',
         'requests>=2.19.1',

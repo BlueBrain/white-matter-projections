@@ -251,8 +251,8 @@ def get_region_layer_to_id(region_map, region, layers, format_string):
 
     an ID of -1 means it was not found
     '''
-    return {l: region_subregion_to_id(region_map, region, l, format_string)
-            for l in layers}
+    return {layer: region_subregion_to_id(region_map, region, layer, format_string)
+            for layer in layers}
 
 
 def region_subregion_to_id(region_map, region, subregion, format_string):
