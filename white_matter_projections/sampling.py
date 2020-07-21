@@ -89,6 +89,15 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
 
 
 def _full_sample_parallel(positions, voxel_dimensions, index_path, n_jobs=-2, chunks=None):
+    '''Parallel sample of all `positions`
+
+    Args:
+        positions(iterable of float positions): the lower corner of the voxel to be sampled
+        voxel_dimensions: 3D values for the voxel size
+        index_path(str): directory where FLATIndex can find SEGMENT_*
+        n_jobs(int): number of jobs
+        chunks(int): size of each chunk
+    '''
     if chunks is None:
         chunks = (len(positions) // 500) + 1
 
