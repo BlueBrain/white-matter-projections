@@ -348,9 +348,16 @@ def calculate_constrained_volume(config, brain_regions, region_id, vertices):
     return count * brain_regions.voxel_volume
 
 
-def _subsample_per_source(config, target_vertices,
-                          projection_name, densities, hemisphere, side,
-                          segment_samples, output):
+def _subsample_per_source(  # pylint: disable=too-many-arguments
+    config,
+    target_vertices,
+    projection_name,
+    region_tgt,
+    densities,
+    hemisphere,
+    side,
+    segment_samples, output
+):
     '''Given all region's `segment_samples`, pick segments that satisfy the
     desired density in constrained by `vertices`
 
@@ -367,20 +374,21 @@ def _subsample_per_source(config, target_vertices,
     '''
     # pylint: disable=too-many-locals
 
-    center_line = config.flat_map.center_line_2d
     brain_regions = config.atlas.load_data('brain_regions')
 
     base_path = os.path.join(output, SAMPLE_PATH, side)
     utils.ensure_path(base_path)
-    path = os.path.join(base_path, projection_name + '.feather')
+    path = os.path.join(base_path, '%s_%s.feather' % (projection_name, region_tgt))
     if os.path.exists(path):
         L.info('Already subsampled: %s', path)
-        return
+        return 0
 
     mirrored_vertices = target_vertices.copy()
     if utils.is_mirror(side, hemisphere):
+        center_line = config.flat_map.center_line_2d
         mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
 
+    densities = densities[['subregion_tgt', 'id_tgt', 'density']].drop_duplicates()
     groupby = densities.groupby(['subregion_tgt', 'id_tgt']).density.sum().iteritems()
     all_syns, zero_volume = [], []
     for (layer, id_tgt), density in groupby:
@@ -404,16 +412,17 @@ def _subsample_per_source(config, target_vertices,
     if zero_volume:
         L.info('No volume found for: %s', zero_volume)
 
-    if not len(all_syns):
-        L.info('No synapses found for: %s %s', projection_name, side)
-        return
-
     all_syns = pd.concat(all_syns, ignore_index=True, sort=False)
 
-    all_syns['section_id'] = pd.to_numeric(all_syns['section_id'], downcast='unsigned')
-    all_syns['segment_id'] = pd.to_numeric(all_syns['segment_id'], downcast='unsigned')
+    if not len(all_syns):
+        L.info('No synapses found for: %s %s', projection_name, side)
+    else:
+        all_syns['section_id'] = pd.to_numeric(all_syns['section_id'], downcast='unsigned')
+        all_syns['segment_id'] = pd.to_numeric(all_syns['segment_id'], downcast='unsigned')
 
-    utils.write_frame(path, all_syns)
+        utils.write_frame(path, all_syns)
+
+    return len(all_syns)
 
 
 def _pick_syns(syns, count):
@@ -443,20 +452,26 @@ def subsample_per_target(output, config, target_population, side, reverse):
         L.warning('Densities are empty, did you select a target?')
         return
 
-    segment_samples = load_all_samples(output, region_tgt=str(densities.region_tgt.unique()[0]))
-    gb = list(densities.groupby(
-        ['source_population', 'region_tgt', 'projection_name', 'hemisphere', ]))
+    regions = list(densities.region_tgt.unique())
 
-    if reverse:
-        gb.reverse()
+    for region_tgt in regions:
+        segment_samples = load_all_samples(output, region_tgt)
 
-    projections_mapping = config.recipe.projections_mapping
+        gb = list(densities
+                  .query('region_tgt == @region_tgt')
+                  .groupby(['source_population', 'projection_name', 'hemisphere', ]))
 
-    for i, (keys, densities) in enumerate(gb):
-        source_population, _, projection_name, hemisphere = keys
-        tgt_vertices = projections_mapping[source_population][projection_name]['vertices']
+        if reverse:
+            gb.reverse()
 
-        L.debug('Subsampling for %s[%s] (%s of %s)', projection_name, side, i, len(gb))
-        _subsample_per_source(config, tgt_vertices,
-                              projection_name, densities, hemisphere, side,
-                              segment_samples, output)
+        for i, (keys, density) in enumerate(gb):
+            source_population, projection_name, hemisphere = keys
+            tgt_vertices = config.recipe.projections_mapping[
+                source_population][projection_name]['vertices']
+
+            L.debug('Subsampling for %s[%s][%s] (%s of %s)',
+                    projection_name, side, region_tgt, i + 1, len(gb))
+            _subsample_per_source(config, tgt_vertices,
+                                  projection_name, region_tgt,
+                                  density, hemisphere, side,
+                                  segment_samples, output)

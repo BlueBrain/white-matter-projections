@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from bluepy.v2.index import SegmentIndex
 
-from nose.tools import ok_, eq_
+from nose.tools import ok_, eq_, assert_raises
 from white_matter_projections import sampling, utils
 from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
@@ -240,15 +240,10 @@ def test__pick_syns():
 
 
 def test__subsample_per_source():
-    vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
-    densities = pd.DataFrame([['l1', 2, 0.145739],
-                              ['l1', 2, 0.145739]
-                              ], columns=['subregion_tgt', 'id_tgt', 'density'])
     config = Mock()
     config.flat_map = fake_flat_map()
     config.atlas.load_data.return_value, _ = fake_brain_regions()
 
-    hemisphere = 'contra'
 
     columns = ['segment_x1', 'segment_y1', 'segment_z1',
                'segment_x2', 'segment_y2', 'segment_z2',
@@ -257,23 +252,60 @@ def test__subsample_per_source():
              1.0, 1.0, 1.0,
              0.1, 10, 1, 1, 1],
             ]
-    samples = {'l1': {'left': pd.DataFrame(data, columns=columns),
-                      'right': pd.DataFrame(data, columns=columns),
-                      },
+    samples = {'two': {'left': pd.DataFrame(data, columns=columns),
+                       'right': pd.DataFrame(data, columns=columns),
+                       },
+               'thirty': {'left': pd.DataFrame(data, columns=columns),
+                          'right': pd.DataFrame(data, columns=columns),
+                          },
                }
     projection_name = 'projection_name'
     side = 'left'
+    region_tgt = 'region_tgt'
+    hemisphere = 'contra'
+
     with tempdir('test__subsample_per_source') as output:
+        output_path = os.path.join(output, sampling.SAMPLE_PATH, side, '%s_%s.feather' % (projection_name, region_tgt))
+
         with patch('white_matter_projections.sampling.mask_xyzs_by_vertices') as mask_xyzs:
             mask_xyzs.return_value = np.array([True], dtype=bool)
             np.random.seed(37)
-            sampling._subsample_per_source(config, vertices,
-                                           projection_name, densities, hemisphere, side,
-                                           samples, output)
 
-        output_path = os.path.join(output, sampling.SAMPLE_PATH, side, projection_name + '.feather')
-        ok_(os.path.exists(output_path))
-        res = utils.read_frame(output_path)
-        eq_(len(res), 1)
+            vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
+
+            densities = pd.DataFrame([['two', 2, 0.14],  # densities aren't the same, but when added (0.14 + 0.15) * 5. (volume)
+                                      ['two', 2, 0.15]   # they are larger than 1
+                                      ], columns=['subregion_tgt', 'id_tgt', 'density'])
+
+            syn_count = sampling._subsample_per_source(config, vertices,
+                                                       projection_name, region_tgt, densities, hemisphere, side,
+                                                       samples, output)
+            eq_(syn_count, 1)  # int((0.14 + 0.15) * 5.) == 1
+
+            ok_(os.path.exists(output_path))
+            res = utils.read_frame(output_path)
+            eq_(len(res), 1)  # int((0.14 + 0.15) * 5.) == 1
+
+            #already sampled, file exists
+            syn_count = sampling._subsample_per_source(config, vertices,
+                                                       projection_name, region_tgt, densities, hemisphere, side,
+                                                       samples, output)
+            eq_(syn_count, 0)
+
+            # duplicated densities
+            densities = pd.DataFrame([['two', 2, 1.],  # duplicates
+                                      ['two', 2, 1.]   # duplicates
+                                      ], columns=['subregion_tgt', 'id_tgt', 'density'])
+
+            os.unlink(output_path)
+            syn_count = sampling._subsample_per_source(config, vertices,
+                                                       projection_name, region_tgt, densities, hemisphere, side,
+                                                       samples, output)
+            eq_(syn_count, 5)  # int(1. * 5.), where 5 is the volume
+
+            ok_(os.path.exists(output_path))
+            res = utils.read_frame(output_path)
+            eq_(len(res), 5)  # int(1. * 5.), where 5 is the volume
+
 
 #def subsample_per_target

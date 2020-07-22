@@ -443,30 +443,32 @@ def _parse_populations(populations, region_map, subregion_translation, region_su
     '''
     data, removed = [], []
     for pop in populations:
-        atlas_region = pop['atlas_region']
+        pop_filter = 'Empty'
+        if 'proj_type' in pop['filters']:
+            pop_filter = pop['filters']['proj_type']
+            assert pop_filter in ('intratelencephalic', 'pyramidal tract', ), \
+                'only can consider "intratelencephalic", "pyramidal tract",  at the moment'
+        elif 'synapse_type' in pop['filters']:
+            pop_filter = pop['filters']['synapse_type']
+            assert pop_filter == 'EXC', 'only can consider EXC at the moment'
 
-        region = atlas_region['name']
-        for subregion in atlas_region['subregions']:
-            subregion = subregion_translation.get(subregion, subregion)
+        if isinstance(pop['atlas_region'], dict):
+            atlas_regions = [pop['atlas_region'], ]
+        else:
+            atlas_regions = pop['atlas_region']
 
-            id_ = utils.region_subregion_to_id(
-                region_map, region, subregion, region_subregion_format)
-            if id_ <= 0:
-                removed.append((region, subregion))
-                continue
+        for atlas_region in atlas_regions:
+            region = atlas_region['name']
+            for subregion in atlas_region['subregions']:
+                subregion = subregion_translation.get(subregion, subregion)
 
-            if not pop['filters']:
-                pop_filter = 'Empty'
-            elif 'proj_type' in pop['filters']:
-                pop_filter = pop['filters']['proj_type']
-                assert pop_filter in ('intratelencephalic', 'pyramidal tract', ), \
-                    'only can consider "intratelencephalic", "pyramidal tract",  at the moment'
-            else:
-                pop_filter = pop['filters']['synapse_type']
-                assert pop_filter == 'EXC', 'only can consider EXC at the moment'
+                id_ = utils.region_subregion_to_id(
+                    region_map, region, subregion, region_subregion_format)
+                if id_ <= 0:
+                    removed.append((region, subregion))
+                    continue
 
-            row = (id_, pop['name'], region, subregion, pop_filter)
-            data.append(row)
+                data.append((id_, pop['name'], region, subregion, pop_filter))
 
     columns = ['id', 'population', 'region', 'subregion', 'population_filter']
     populations = pd.DataFrame(data, columns=columns)
