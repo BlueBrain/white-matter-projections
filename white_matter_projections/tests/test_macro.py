@@ -101,10 +101,31 @@ def test_MacroConnections():
              {'phys_parameter': 'D'}]},
         {'name': 'type_2',
          'physiology': [
-             {'phys_parameter': 'D'}]}]
+             {'phys_parameter': 'D'}]},
+        {'name': 'type_3',
+         'physiology': [
+             {'phys_parameter': 'F'}]},
+    ]
 
     with assert_raises(AssertionError):
         macro._parse_synapse_types(synapse_types_mismatching_phys_parameters)
+
+    synapse_types_matching_phys_parameters = [
+        {'name': 'type_1',
+         'physiology': [
+             {'phys_parameter': 'U'},
+             {'phys_parameter': 'D'}]},
+        {'name': 'type_2',
+         'physiology': [
+             {'phys_parameter': 'U'},
+             {'phys_parameter': 'D'}]},
+        {'name': 'type_3',
+         'physiology': [
+             {'phys_parameter': 'U'},
+             {'phys_parameter': 'D'}]},
+    ]
+
+    macro._parse_synapse_types(synapse_types_matching_phys_parameters)
 
 
 def test_MacroConnections_repr():

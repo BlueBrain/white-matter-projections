@@ -25,6 +25,8 @@ import hashlib
 import json
 import logging
 import os
+import functools
+import operator
 import yaml
 
 import numpy as np
@@ -645,7 +647,11 @@ def _parse_synapse_types(synapse_types):
         return {physiology['phys_parameter'] for physiology in synapse_type['physiology']}
 
     if len(synapse_types) > 1:
-        difference = set.symmetric_difference(*[get_phys_parameters(t) for t in synapse_types])
+        phys_parameters = [get_phys_parameters(t) for t in synapse_types]
+        all_parameters = functools.reduce(operator.or_, phys_parameters)
+        common_parameters = functools.reduce(operator.and_, phys_parameters)
+        difference = all_parameters - common_parameters
+
         assert not difference, \
             'phys_parameter(s) not defined in all synapse types: %s' % ', '.join(difference)
 
