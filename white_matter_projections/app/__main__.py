@@ -52,7 +52,7 @@ def app(ctx, verbose, interactive_matplotlib, plot_format):
             yield fig
 
             if not name.endswith(plot_format):
-                name += plot_format
+                name += '.' + plot_format
 
             plt.savefig(name)
             print_color('Wrote: %s', name)

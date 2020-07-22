@@ -33,7 +33,7 @@ def flat_map(ctx):
     from white_matter_projections import display
     config, output = ctx.obj['config'], ctx.obj['output']
 
-    name = os.path.join(output, 'flat_map.png')
+    name = os.path.join(output, 'flat_map')
     with ctx.obj['figure'](name) as fig:
         ax = fig.gca()
         ax.set_aspect('equal')
@@ -46,6 +46,7 @@ def flat_map(ctx):
 @click.pass_context
 def source_locations(ctx, source_population):
     '''Plot the source locations, after allocation, but before used'''
+    # pylint: disable=too-many-locals
     from white_matter_projections import display, micro, mapping
     config, output = ctx.obj['config'], ctx.obj['output']
 
@@ -63,7 +64,7 @@ def source_locations(ctx, source_population):
     src_cells = config.get_cells()
     mapper = mapping.CommonMapper.load_default(config)
 
-    name = 'src_positions'
+    name = os.path.join(output, 'src_positions_' + source_population)
     with ctx.obj['figure'](name) as fig:
         ax = fig.gca()
         ax.set_aspect('equal')
@@ -71,10 +72,13 @@ def source_locations(ctx, source_population):
         display.plot_allen_coloured_flat_map(ax, config, regions='all')
         display.plot_flat_cells(ax, src_cells, sgids, mapper)
 
+        vertices = config.recipe.projections_mapping[source_population]['vertices']
+        display.draw_triangle(ax, vertices)
+
 
 @cmd.command()
 @click.option('-p', '--population', 'target_population', required=True)
-@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
 def used_locations(ctx, target_population, side):
     '''Plot the source locations for particular target region, but only ones used'''
@@ -132,6 +136,14 @@ def projection(ctx, projection_name, side):
         display.plot_allen_coloured_flat_map(ax, config, regions='all')
         display.draw_projection(ax, config, allocations, syns, projection_name, side)
 
+    print_color('Green triangle: Source region\n'
+                '   White: source cell positions in flat map\n'
+                '   Green: used source cell positions in flat map\n'
+                'Yellow triangle: Target region'
+                '   Red: source cell positions in flat mapped to target region\n'
+                '   Blue: used source cell positions in flat mapped to target region\n'
+                )
+
 
 @cmd.command()
 @click.option('-p', '--population', required=True, help='Source Population')
@@ -157,3 +169,25 @@ def allocation_stats(ctx, population):
           .sort_values('absolute_difference', ascending=False)
           .to_string(max_rows=None))
     print_color('Mean absolute difference: %0.2f', interactions['absolute_difference'].abs().mean())
+
+
+@cmd.command()
+@click.option('-n', '--name', 'projection_name')
+@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.pass_context
+def triangle_map(ctx, projection_name, side):
+    '''plot projections from `projection_name` and `side`'''
+    from white_matter_projections import display
+    config, output = ctx.obj['config'], ctx.obj['output']
+
+    name = str(os.path.join(output, 'triangle_map_%s_%s' % (projection_name, side)))
+    with ctx.obj['figure'](name) as fig:
+        ax = fig.gca()
+        ax.set_aspect('equal')
+
+        display.plot_allen_coloured_flat_map(ax, config, regions='all')
+        display.draw_triangle_map(ax, config, projection_name, side)
+
+    print_color('Green triangle: Source region\n'
+                'Yellow triangle: Target region'
+                )

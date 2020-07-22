@@ -1,4 +1,5 @@
 '''utilities for displaying pertinent information'''
+import itertools as it
 import logging
 import numpy as np
 import pandas as pd
@@ -193,6 +194,7 @@ def draw_triangle(ax, vertices, color='white'):
     '''draw `vertices` to `ax`'''
     v = (0, 1, 2, 0)
     ax.plot(vertices[v, 1], vertices[v, 0], c=color)
+    ax.scatter(vertices[v[:3], 1], vertices[v[:3], 0], c=('red', 'green', 'blue'), s=40)
 
 
 def plot_source_region_triangles(ax, config, regions='all', only_right=False):
@@ -221,44 +223,82 @@ def plot_source_region_triangles(ax, config, regions='all', only_right=False):
         draw_triangle(ax, vertices, color='white')
 
 
+def draw_triangle_map(ax, config, projection_name, side):
+    '''for `projection_name`, plot the target synapse locations'''
+    # pylint: disable=too-many-locals
+    mapper = mapping.CommonMapper.load_default(config)
+    projection = config.recipe.projections.set_index('projection_name').loc[projection_name]
+    assert isinstance(projection, pd.Series)
+
+    source_populations = (config.recipe.populations.set_index('population')
+                          .loc[projection.source_population])
+
+    mirror = utils.is_mirror(side, projection.hemisphere)
+
+    brain_regions = config.flat_map.brain_regions
+
+    colors = it.cycle((('red', 'green',), ('blue', 'yellow',)))
+
+    for (src_color, dst_color), src_population in zip(colors, source_populations.itertuples()):
+        xyz = np.nonzero(brain_regions.raw == src_population.id)
+        xyz = brain_regions.indices_to_positions(np.array(xyz).T)
+        uvs = plot_xyz_to_flat(ax, mapper, xyz, color=src_color, alpha=1)
+
+        uvs = mapper.map_flat_to_flat(projection.source_population, projection_name, uvs, mirror)
+        uvs = uvs[uvs[:, utils.Y] > 0.]
+        # Note: Y/X are reversed to keep the same perspective as plt.imshow
+        ax.scatter(uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=1, color=dst_color)
+
+    # draw source vertices
+    projections_mapping = config.recipe.projections_mapping[projection.source_population]
+    src_verts = projections_mapping['vertices']
+    tgt_verts = projections_mapping[projection_name]['vertices']
+
+    if mirror:
+        src_verts = utils.mirror_vertices_y(src_verts, config.flat_map.center_line_2d)
+        tgt_verts = utils.mirror_vertices_y(tgt_verts, config.flat_map.center_line_2d)
+
+    draw_triangle(ax, src_verts, color='green')
+    draw_triangle(ax, tgt_verts, color='yellow')
+
+
 def draw_projection(ax, config, allocations, syns, projection_name, side):
     '''for `projection_name`, plot the target synapse locations'''
     # pylint: disable=too-many-locals
-
-    flat_map, recipe = config.flat_map, config.recipe
-
     mapper = mapping.CommonMapper.load_default(config)
-    hemisphere = recipe.projections.set_index('projection_name').loc[projection_name].hemisphere
+    hemisphere = (config.recipe
+                  .projections.set_index('projection_name').loc[projection_name].hemisphere
+                  )
 
     left_cells, right_cells = micro.partition_cells_left_right(config.get_cells(),
-                                                               flat_map.center_line_3d)
+                                                               config.flat_map.center_line_3d)
 
     source_population, all_sgids = allocations.loc[projection_name][['source_population', 'sgids']]
     all_sgids = np.unique(all_sgids)
     used_sgids = syns.sgid.unique()
     mirror = utils.is_mirror(side, hemisphere)
 
-    for sgids, color, alpha in ((all_sgids, 'white', 1.),
-                                (used_sgids, 'green', 1.),
-                                ):
+    for sgids, src_color, dst_color, alpha in ((all_sgids, 'white', 'red', 1.),
+                                               (used_sgids, 'green', 'blue', 1.),
+                                               ):
         src_cell_positions = micro.separate_source_and_targets(
             left_cells, right_cells, sgids, hemisphere, side)
 
         xyz = src_cell_positions[utils.XYZ].values
-        uvs = plot_xyz_to_flat(ax, mapper, xyz, color=color, alpha=alpha)
+        uvs = plot_xyz_to_flat(ax, mapper, xyz, color=src_color, alpha=alpha)
 
         uvs = mapper.map_flat_to_flat(source_population, projection_name, uvs, mirror)
         uvs = uvs[uvs[:, utils.Y] > 0.]
         # Note: Y/X are reversed to keep the same perspective as plt.imshow
-        ax.scatter(uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=alpha, color=color)
+        ax.scatter(uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=alpha, color=dst_color)
 
     # draw source vertices
-    projections_mapping = recipe.projections_mapping[source_population]
+    projections_mapping = config.recipe.projections_mapping[source_population]
     src_verts = projections_mapping['vertices']
     tgt_verts = projections_mapping[projection_name]['vertices']
     if mirror:
-        src_verts = utils.mirror_vertices_y(src_verts, flat_map.center_line_2d)
-        tgt_verts = utils.mirror_vertices_y(tgt_verts, flat_map.center_line_2d)
+        src_verts = utils.mirror_vertices_y(src_verts, config.flat_map.center_line_2d)
+        tgt_verts = utils.mirror_vertices_y(tgt_verts, config.flat_map.center_line_2d)
     draw_triangle(ax, src_verts, color='green')
     draw_triangle(ax, tgt_verts, color='yellow')
 
