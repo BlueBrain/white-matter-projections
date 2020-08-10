@@ -632,27 +632,30 @@ def _parse_layer_profiles(layer_profiles, subregion_translation):
 
 def _parse_synapse_types(synapse_types):
     '''
-    - name: type_1
-      physiology:
-        - phys_parameter: U
-          distribution:
-            - type: truncated_gaussian
-              dist_parameters:
-                - mean: 0.46
-                - std: 0.26
-        - ...
+      type_1:
+        physiology:
+          U:
+            distribution:
+              name: truncated_gaussian
+              params:
+                mean: 0.46
+                std: 0.26
+          D:
+            distribution:
+              name: truncated_gaussian
+              params:
+                mean: 671.0
+                std: 122.0
     '''
-    def get_phys_parameters(synapse_type):
-        '''return phys_parameters for a synapse type'''
-        return {physiology['phys_parameter'] for physiology in synapse_type['physiology']}
-
     if len(synapse_types) > 1:
-        phys_parameters = [get_phys_parameters(t) for t in synapse_types]
+        phys_parameters = [set(v['physiology']) for v in synapse_types.values()]
         all_parameters = functools.reduce(operator.or_, phys_parameters)
         common_parameters = functools.reduce(operator.and_, phys_parameters)
         difference = all_parameters - common_parameters
 
         assert not difference, \
             'phys_parameter(s) not defined in all synapse types: %s' % ', '.join(difference)
+
+    # TODO:  Validate recipe while reading
 
     return synapse_types

@@ -94,38 +94,60 @@ def test_MacroConnections():
     ok_(isinstance(ret, pd.DataFrame))
     assert_allclose(ret.loc['1', 'TopLevel'], 0.08996559651848632)
 
-    synapse_types_mismatching_phys_parameters = [
-        {'name': 'type_1',
-         'physiology': [
-             {'phys_parameter': 'U'},
-             {'phys_parameter': 'D'}]},
-        {'name': 'type_2',
-         'physiology': [
-             {'phys_parameter': 'D'}]},
-        {'name': 'type_3',
-         'physiology': [
-             {'phys_parameter': 'F'}]},
-    ]
+
+def test__parse_synapse_types():
+    fake_params_gaussian = {'name': 'truncated_gaussian',
+                            'params': {'mean': 0.46, 'std': 0.26}}
+    fake_params_uniform_int = {'name': 'uniform_int',
+                               'params': {'min': 0, 'max': 10}}
+    fake_params_fixed_value = {'name': 'fixed_value',
+                               'params': {'value': 42}}
+
+    synapse_types_matching_phys_parameters = {
+        'type_1': {
+            'physiology': {
+                'U': fake_params_gaussian,
+                'D': fake_params_uniform_int,
+                'F': fake_params_fixed_value,
+                },
+            },
+        'type_2': {
+            'physiology': {
+                'U': fake_params_gaussian,
+                'D': fake_params_uniform_int,
+                'F': fake_params_fixed_value,
+                },
+            },
+        'type_3': {
+            'physiology': {
+                'U': fake_params_gaussian,
+                'D': fake_params_uniform_int,
+                'F': fake_params_fixed_value,
+                },
+            },
+        }
+
+    res = macro._parse_synapse_types(synapse_types_matching_phys_parameters)
+    eq_(res, synapse_types_matching_phys_parameters)
+
+    synapse_types_mismatching_phys_parameters = synapse_types_matching_phys_parameters
+
+    del synapse_types_mismatching_phys_parameters['type_2']['physiology']['U']
 
     with assert_raises(AssertionError):
         macro._parse_synapse_types(synapse_types_mismatching_phys_parameters)
 
-    synapse_types_matching_phys_parameters = [
-        {'name': 'type_1',
-         'physiology': [
-             {'phys_parameter': 'U'},
-             {'phys_parameter': 'D'}]},
-        {'name': 'type_2',
-         'physiology': [
-             {'phys_parameter': 'U'},
-             {'phys_parameter': 'D'}]},
-        {'name': 'type_3',
-         'physiology': [
-             {'phys_parameter': 'U'},
-             {'phys_parameter': 'D'}]},
-    ]
+    '''  Validate recipe while parsing?
+    parameters = { 'type_1': { 'physiology': { 'U': fake_params_gaussian.copy(), }, }, }
+    del parameters['type_1']['physiology']['U']['params']['mean']
+    with assert_raises(AssertionError):
+        macro._parse_synapse_types(synapse_types_mismatching_phys_parameters)
 
-    macro._parse_synapse_types(synapse_types_matching_phys_parameters)
+    parameters = { 'type_1': { 'physiology': { 'U': fake_params_gaussian.copy(), }, }, }
+    del parameters['type_1']['physiology']['U']['params']['std']
+    with assert_raises(AssertionError):
+        macro._parse_synapse_types(synapse_types_mismatching_phys_parameters)
+    '''
 
 
 def test_MacroConnections_repr():
