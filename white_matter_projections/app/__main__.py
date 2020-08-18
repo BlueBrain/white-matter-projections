@@ -1,5 +1,4 @@
 '''white-matter application'''
-from __future__ import print_function
 from contextlib import contextmanager
 
 import logging

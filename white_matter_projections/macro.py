@@ -206,65 +206,6 @@ class MacroConnections(object):
 
         return ret
 
-    def get_target_region_density(self, norm_layer_profiles, hemisphere):
-        '''return dataframe with all the densities for all the target regions'''
-        projections = self.calculate_densities(norm_layer_profiles, hemisphere)
-
-        regions = np.sort(projections.region_tgt.unique())
-        subregions = np.sort(projections.subregion_tgt.unique())
-
-        ret = pd.DataFrame(index=regions, columns=subregions)
-        ret.index.name = 'Target Region'
-        ret.columns.name = 'Target Layer'
-
-        for (region, layer), df in projections.groupby(['region_tgt', 'subregion_tgt']):
-            ret.loc[region][layer] = df.density.sum()
-
-        return ret
-
-    def get_target_region_density_modules(
-            self, norm_layer_profiles, target_acronym, modules, hemisphere='ipsi'):
-        '''Vertical profile of incoming projections, grouped by module'''
-        target_acronym = target_acronym  # pylint workaround: variable used in query()
-        projections = (self.calculate_densities(norm_layer_profiles, hemisphere)
-                       .query('region_tgt == @target_acronym')
-                       )
-
-        ret = pd.DataFrame(index=sorted(projections['subregion_tgt'].unique()),
-                           columns=sorted(m[0] for m in modules))
-        ret.index.name, ret.columns.name = 'Target', 'Source'
-
-        for module, regions in modules:
-            regions = regions  # pylint workaround: variable used in query()
-            for tgt, df in projections.query('region_src in @regions').groupby('subregion_tgt'):
-                ret.loc[tgt][module] = df.density.sum()
-        return ret
-
-    def get_target_region_density_sources(
-            self, norm_layer_profiles, target_acronym, hemisphere='ipsi'):
-        '''Vertical profile of incoming projections
-
-        For a target region a stacked bar plot of incoming projection densities for each
-        region/subregion combination (i.e. L5it from VISp, etc).
-
-        Point 4 of: https://bbpteam.epfl.ch/project/issues/browse/NCX-121?focusedCommentId=69966
-        '''
-        target_acronym = target_acronym  # pylint workaround: variable used in query()
-        projections = (self.calculate_densities(norm_layer_profiles, hemisphere)
-                       .query('region_tgt == @target_acronym')
-                       )
-
-        source = 'source_population'
-        target = 'subregion_tgt'
-
-        ret = pd.DataFrame(index=sorted(projections[target].unique()),
-                           columns=sorted(projections[source].unique()))
-        ret.index.name, ret.columns.name = 'Target', 'Source'
-
-        for (tgt, src), df in projections.groupby([target, source]):
-            ret.loc[tgt][src] = df.density.sum()
-        return ret
-
     def get_population(self, population_name):
         '''return population for `population_name`'''
         population = self.populations.set_index('population').loc[population_name]

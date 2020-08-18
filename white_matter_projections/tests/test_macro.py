@@ -112,7 +112,7 @@ def test__parse_layer_profiles():
         ['1', '23', '4', '5', 'l6a', 'l6b'])
 
 
-def test_MacroConnections():
+def test_MacroConnections_get_connection_density_map():
     region_subregion_translation = get_region_subregion_translation()
     recipe = macro.MacroConnections.load_recipe(
         RECIPE_TXT,
@@ -124,28 +124,6 @@ def test_MacroConnections():
     ipsi = recipe.get_connection_density_map('ipsi')
     assert_allclose(ipsi.loc['ECT']['ACAd'], 0.26407104)
     eq_(ipsi.loc['MOs']['ACAd'], 0.)
-
-    layer_heights = {
-        'FRP':  {'l6a': 50,  'l6b': 200, '5': 300, '4': 50,  'l23': 400, '1': 500, },
-        'MOs':  {'l6a': 300, 'l6b': 700, '5': 800, '4': 300, 'l23': 900, '1': 1000, },
-        'ACAd': {'l6a': 450, 'l6b': 800, '5': 700, '4': 450, 'l23': 600, '1': 500, },
-    }
-
-    layer_heights = utils.region_layer_heights(layer_heights)
-
-    norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
-
-    ipsi = recipe.get_target_region_density(norm_layer_profiles, 'ipsi')
-    assert_allclose(ipsi.loc['ACAd']['1'], 0.13528667)
-
-    ret = recipe.get_target_region_density_sources(norm_layer_profiles, 'FRP')
-    assert_allclose(ret.loc['1']['POP2_ALL_LAYERS'], 0.08996559)
-
-    modules = [('TopLevel', ['FRP', 'MOs', ]),
-               ]
-    ret = recipe.get_target_region_density_modules(norm_layer_profiles, 'FRP', modules)
-    ok_(isinstance(ret, pd.DataFrame))
-    assert_allclose(ret.loc['1', 'TopLevel'], 0.08996559651848632)
 
 
 def test__parse_synapse_types():
@@ -249,4 +227,3 @@ def test_MacroConnections_serialization():
 #_get_projections
 #_get_connection_map
 #_calculate_densities
-#get_target_region_density_modules

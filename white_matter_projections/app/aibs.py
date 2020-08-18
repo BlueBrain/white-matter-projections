@@ -1,5 +1,4 @@
 '''commands related to Allen Institute'''
-from __future__ import print_function
 from glob import glob
 import json
 import logging
