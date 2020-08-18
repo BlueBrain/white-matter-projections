@@ -187,17 +187,7 @@ def download_streamline(source_region, source_region_id, target_region, seed):
 
 
 def download_streamlines(centroids, region_map, output_path, sleep_time=0.5):
-    '''download streamlines from AIBS
-
-    logging.basicConfig(level=logging.DEBUG)
-
-    from white_matter_projections import utils, streamlines as sl
-    config = utils.Config('recipe.1p10/white-matter.yaml')
-
-    centroids = sl.get_connected_centroids(config.flat_map, config.recipe)
-
-    missing = sl.download_streamlines(centroids, region_map, output_path='streamlines')
-    '''
+    '''download streamlines from AIBS'''
     missing = []
     columns = ['source_region', 'target_region',
                'source_x', 'source_y', 'source_z',

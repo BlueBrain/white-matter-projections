@@ -11,6 +11,9 @@ from numpy.testing import assert_allclose, assert_raises
 from pandas.testing import assert_frame_equal
 
 
+FLAT_MAP_NAMES = ['Allen Dorsal Flatmap', ]
+
+
 def test__parse_populations():
     region_subregion_translation = get_region_subregion_translation()
     pop_cat, populations = macro._parse_populations(RECIPE['populations'],
@@ -75,7 +78,9 @@ def test__parse_populations():
 
 
 def test__parse_projections():
-    projections, projections_mapping = macro._parse_projections(RECIPE['projections'], POP_CAT)
+    projections, projections_mapping = macro._parse_projections(RECIPE['projections'],
+                                                                POP_CAT,
+                                                                {'Allen Dorsal Flatmap'})
     eq_(len(projections.query('hemisphere == "ipsi"')), 3)
     eq_(len(projections.query('target_layer_profile_name == "profile_1"')), 1)
     eq_(len(projections.query('target_layer_profile_name == "profile_2"')), 4)
@@ -113,7 +118,8 @@ def test_MacroConnections():
         RECIPE_TXT,
         REGION_MAP,
         cache_dir=None,
-        region_subregion_translation=region_subregion_translation
+        region_subregion_translation=region_subregion_translation,
+        flat_map_names=FLAT_MAP_NAMES
     )
     ipsi = recipe.get_connection_density_map('ipsi')
     assert_allclose(ipsi.loc['ECT']['ACAd'], 0.26407104)
@@ -202,7 +208,9 @@ def test_MacroConnections_repr():
     recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
                                                 REGION_MAP,
                                                 cache_dir=None,
-                                                region_subregion_translation=region_subregion_translation)
+                                                region_subregion_translation=region_subregion_translation,
+                                                flat_map_names=FLAT_MAP_NAMES
+                                                )
     out = str(recipe)
     ok_('MacroConnections' in out)
     ok_('populations: 26' in out)
@@ -216,14 +224,18 @@ def test_MacroConnections_serialization():
             RECIPE_TXT,
             REGION_MAP,
             cache_dir=tmp,
-            region_subregion_translation=region_subregion_translation)
+            region_subregion_translation=region_subregion_translation,
+            flat_map_names=FLAT_MAP_NAMES
+            )
 
 
         recipe_cached = macro.MacroConnections.load_recipe(
             RECIPE_TXT,
             REGION_MAP,
             cache_dir=tmp,
-            region_subregion_translation=region_subregion_translation)
+            region_subregion_translation=region_subregion_translation,
+            flat_map_names=FLAT_MAP_NAMES
+            )
 
         assert_frame_equal(recipe.populations, recipe_cached.populations)
         assert_frame_equal(recipe.projections, recipe_cached.projections)

@@ -378,7 +378,9 @@ class MacroConnections(object):
                     recipe_yaml,
                     region_map,
                     cache_dir,
-                    region_subregion_translation):
+                    region_subregion_translation,
+                    flat_map_names
+                    ):
         '''load population/projection/p-type recipe
 
         Args:
@@ -387,6 +389,7 @@ class MacroConnections(object):
             cache_dir(str): location to save cached data
             region_subregion_translation(RegionSubregionTranslation): helper to
             deal with atlas compatibility
+            flat_map_names(set(str)): names of the known flatmaps
 
         Returns:
             instance of MacroConnections
@@ -405,7 +408,8 @@ class MacroConnections(object):
         pop_cat, populations = _parse_populations(recipe['populations'],
                                                   region_map,
                                                   region_subregion_translation)
-        projections, projections_mapping = _parse_projections(recipe['projections'], pop_cat)
+        projections, projections_mapping = _parse_projections(
+            recipe['projections'], pop_cat, flat_map_names)
         ptypes, ptypes_interaction_matrix = _parse_ptypes(recipe['p-types'], pop_cat)
         layer_profiles = _parse_layer_profiles(recipe['layer_profiles'],
                                                region_subregion_translation)
@@ -528,7 +532,7 @@ def _parse_populations(populations, region_map, region_subregion_translation):
     return pop_cat, populations
 
 
-def _parse_projections(projections, pop_cat):
+def _parse_projections(projections, pop_cat, flat_map_names):
     '''parse_projections
 
     Returns: tuple of:
@@ -544,7 +548,10 @@ def _parse_projections(projections, pop_cat):
             synapse_type_name: ref. to synapse_types stanza
             synapse_type_fraction: modifier to above type
         dict of projections_mapping keyed on: population_source -> projection_name ->
-            {vertices -> np.array, target_population -> name}
+            {vertices -> np.array,
+            target_population -> name,
+            flat_map_name: name of flat map to use}
+
     '''
     # pylint: disable=too-many-locals
     def get_vertices(node):
@@ -564,6 +571,12 @@ def _parse_projections(projections, pop_cat):
             continue
 
         source = proj['source']
+        source_mapping = projections_mapping[source]
+
+        assert proj['mapping_coordinate_system']['base_system'] in flat_map_names, \
+            f'Currently only handle {flat_map_names}, but {base_system} is not one of them'
+
+        source_mapping['base_system'] = proj['mapping_coordinate_system']['base_system']
 
         for target in proj['targets']:
             if target['source_filters']:
@@ -576,17 +589,18 @@ def _parse_projections(projections, pop_cat):
 
             mapping = target['presynaptic_mapping']
 
-            # TODO: merge https://bbpcode.epfl.ch/code/#/c/48904/
-            # assert (mapping['mapping_coordinate_system']['base_system'] ==
-            #         'Allen Dorsal Flatmap'), \
-            #     'Currently only handle Allen Dorsal Flatmap'
-            assert projection_name not in projections_mapping[source], \
+            base_system = mapping['mapping_coordinate_system']['base_system']
+            assert base_system in flat_map_names, \
+                f'Currently only handle {flat_map_names}, but {base_system} is not one of them'
+
+            assert projection_name not in source_mapping, \
                 'Duplicate projection target: %s -> %s' % (source, projection_name)
 
-            projections_mapping[source][projection_name] = {
+            source_mapping[projection_name] = {
                 'variance': mapping['mapping_variance'],
                 'vertices': get_vertices(mapping),
                 'target_population': target['population'],
+                'base_system': base_system,
             }
 
             assert len(target['synapse_types']) == 1, 'Too many synapses types!'
@@ -606,7 +620,7 @@ def _parse_projections(projections, pop_cat):
                 synapse_type_fraction,
             ))
 
-        projections_mapping[source]['vertices'] = get_vertices(proj)
+        source_mapping['vertices'] = get_vertices(proj)
 
     columns = ['projection_name', 'source_population', 'target_population',
                'hemisphere', 'target_density', 'target_layer_profile_name',

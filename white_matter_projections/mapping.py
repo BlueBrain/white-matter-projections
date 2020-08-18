@@ -28,7 +28,17 @@ L = logging.getLogger(__name__)
 cXZ = np.s_[:, X:3:2]
 
 
-class PositionToVoxel(object):
+def base_system_from_projection(config, source_population, projection_name=None):
+    '''get the flat map for a projection'''
+    projections_mapping = config.recipe.projections_mapping[source_population]
+    if projection_name is None:
+        base_system = projections_mapping['base_system']
+    else:
+        base_system = projections_mapping[projection_name]['base_system']
+    return base_system
+
+
+class _PositionToVoxel(object):
     '''helper to go from 3D position to 3D voxel
 
     Args:
@@ -43,7 +53,7 @@ class PositionToVoxel(object):
         return ret, indices - ret
 
 
-class VoxelToFlat(object):
+class _VoxelToFlat(object):
     '''Map from voxels to flat space
 
     Args:
@@ -59,7 +69,7 @@ class VoxelToFlat(object):
         return flat_ids.astype(float), offsets
 
 
-class FlatToFlat(object):
+class _FlatToFlat(object):
     '''helper for mapping from flat to flat space using BarycentricCoordinates'''
     def __init__(self, projections_mapping, center_line_2d):
         self.projections_mapping = projections_mapping
@@ -84,15 +94,29 @@ class FlatToFlat(object):
 class CommonMapper(object):
     '''Aggregate individual mapping operations common mappings
 
-        Args:
-            position_to_voxel(PositionToVoxel): instance of class
-            voxel_to_flat(VoxelToFlat): instance of class
-            flat_to_flat(FlatToFlat): instance of class
+    Args:
+        flat_map(flat_mapping.FlatMap): flatmap to be used for transformations
+        projections_mapping(recipe.projections_mapping dict): defines the
+        source and target vertices in the 2D coordinate system
     '''
-    def __init__(self, position_to_voxel, voxel_to_flat, flat_to_flat):
-        self.position_to_voxel = position_to_voxel
-        self.voxel_to_flat = voxel_to_flat
-        self.flat_to_flat = flat_to_flat
+    def __init__(self, flat_map, projections_mapping):
+        self.flat_map = flat_map
+        self._projections_mapping = projections_mapping
+
+    @property
+    def position_to_voxel(self):
+        '''3D position to 3D voxel '''
+        return _PositionToVoxel(self.flat_map.brain_regions)
+
+    @property
+    def voxel_to_flat(self):
+        '''3D voxel to 2D flat position, using flat map'''
+        return _VoxelToFlat(self.flat_map.flat_map, self.flat_map.shape)
+
+    @property
+    def flat_to_flat(self):
+        '''based on vertices, move from one flat-map-to another'''
+        return _FlatToFlat(self._projections_mapping, self.flat_map.center_line_2d)
 
     def map_points_to_flat(self, positions):
         '''returns 2D coordinates in flat space for all positions'''
@@ -108,13 +132,10 @@ class CommonMapper(object):
         return tgt_flat_uvs
 
     @classmethod
-    def load_default(cls, config):
+    def load(cls, config, base_system):
         '''load default mapping'''
-        flat_map = config.flat_map
-        position_to_voxel = PositionToVoxel(flat_map.brain_regions)
-        voxel_to_flat = VoxelToFlat(flat_map.flat_map, flat_map.shape)
-        flat_to_flat = FlatToFlat(config.recipe.projections_mapping, flat_map.center_line_2d)
-        return cls(position_to_voxel, voxel_to_flat, flat_to_flat)
+        flat_map = config.flat_map(base_system)
+        return cls(flat_map, config.recipe.projections_mapping)
 
 
 class BarycentricCoordinates(object):

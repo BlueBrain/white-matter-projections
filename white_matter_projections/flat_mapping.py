@@ -4,13 +4,16 @@ import logging
 import numpy as np
 import pandas as pd
 import voxcell
+from lazy import lazy
 
 
 L = logging.getLogger(__name__)
 
 
-class FlatMap(object):
-    '''Holds flat map, and related region_map and brain_regions'''
+class FlatMapBase:
+    '''Flat map that holds flat_map/brain_regions directly, instead of lazy loading them
+
+    Note: used for testing'''
     def __init__(self,
                  flat_map,
                  brain_regions,
@@ -26,29 +29,37 @@ class FlatMap(object):
             center_line_3d(float): defines the line separating the hemispheres in the brain_regions,
             in world coordiates
         '''
-        self.flat_map = flat_map
-        self.brain_regions = brain_regions
-        self.region_map = region_map
+        self._flat_map = flat_map
+        self._brain_regions = brain_regions
+        self._region_map = region_map
         self.center_line_2d = center_line_2d
         self.center_line_3d = center_line_3d
 
-        self.flat_idx = np.reshape(self.mask_in_2d_flatmap(np.reshape(self.flat_map.raw, (-1, 2))),
-                                   self.flat_map.shape)
-        self.shape = np.max(flat_map.raw[self.flat_idx], axis=0) + 1
+    @lazy
+    def flat_map(self):
+        '''mapping of each voxel in 3D to a 2D pixel location'''
+        return self._flat_map
 
-    @classmethod
-    def load(cls,
-             flat_map_path,
-             brain_regions_path,
-             hierarchy_path,
-             center_line_2d,
-             center_line_3d):  # pragma: no cover
-        '''load the flat_mapping from paths'''
-        flat_map = voxcell.VoxelData.load_nrrd(flat_map_path)
-        brain_regions = voxcell.VoxelData.load_nrrd(brain_regions_path)
-        region_map = voxcell.region_map.RegionMap.load_json(hierarchy_path)
+    @lazy
+    def brain_regions(self):
+        '''brain regions dataset at the same resolution as the flatmap'''
+        return self._brain_regions
 
-        return cls(flat_map, brain_regions, region_map, center_line_2d, center_line_3d)
+    @lazy
+    def region_map(self):
+        '''hierarchy_path associated with brain_regions'''
+        return self._region_map
+
+    @lazy
+    def flat_idx(self):
+        '''indices of 3d flatmap having a value'''
+        return np.reshape(self.mask_in_2d_flatmap(np.reshape(self.flat_map.raw, (-1, 2))),
+                          self.flat_map.shape)
+
+    @lazy
+    def shape(self):
+        '''shape of 2d flatmap'''
+        return np.max(self.flat_map.raw[self.flat_idx], axis=0) + 1
 
     @staticmethod
     def mask_in_2d_flatmap(uvs):
@@ -102,3 +113,44 @@ class FlatMap(object):
         idx = tuple(most_popular.reset_index()[['flat_x', 'flat_y']].to_numpy().T)
         flat_id[idx] = most_popular.to_numpy()
         return flat_id
+
+
+class FlatMap(FlatMapBase):
+    '''Holds flat map, and related region_map and brain_regions'''
+    def __init__(self,
+                 flat_map_path,
+                 brain_regions_path,
+                 hierarchy_path,
+                 center_line_2d,
+                 center_line_3d):
+        '''init
+
+        Args:
+            flat_map_path(str): mapping of each voxel in 3D to a 2D pixel location
+            brain_regions(str): brain regions dataset at the same resolution as the flatmap
+            hierarchy_path(str): hierarchy_path associated with brain_regions
+            center_line_2d(float): defines the line separating the hemispheres in the flat map
+            center_line_3d(float): defines the line separating the hemispheres in the brain_regions,
+            in world coordiates
+        '''
+        # pylint: disable=super-init-not-called
+        self.flat_map_path = flat_map_path
+        self.brain_regions_path = brain_regions_path
+        self.hierarchy_path = hierarchy_path
+        self.center_line_2d = center_line_2d
+        self.center_line_3d = center_line_3d
+
+    @lazy
+    def flat_map(self):
+        '''mapping of each voxel in 3D to a 2D pixel location'''
+        return voxcell.VoxelData.load_nrrd(self.flat_map_path)
+
+    @lazy
+    def brain_regions(self):
+        '''brain regions dataset at the same resolution as the flatmap'''
+        return voxcell.VoxelData.load_nrrd(self.brain_regions_path)
+
+    @lazy
+    def region_map(self):
+        '''hierarchy_path associated with brain_regions'''
+        return voxcell.region_map.RegionMap.load_json(self.hierarchy_path)

@@ -156,19 +156,29 @@ The recipe has 'filters' in the population stanzas to narrow down the m-types to
 
 flat_mapping
 ~~~~~~~~~~~~
-
-Information related to the flat-map, it's location, associated atlas and hierarchy information.
+Each of the `base_systems` named in the recipe must have an associated stanza.
+Information related to the `flatmaps`:
+* flat_map: location of the `NRRD` file with the mapping from 3D to 2D location
+* brain_regions: location of `NNRD` with brain regions mapping, voxel size and count must be the same as in `flat_map`
+* hierarchy: location of `hierarchy.json` related to `brain_regions`
 The `center_line_2d` defines the demarcation between `left` and `right`, so that `ipsi`/`contra` can be determined.
-The same is true for `center_line_3d`
+The same is true for `center_line_3d`.
 
 .. code-block:: yaml
 
     flat_mapping:
-        flat_map: /gpfs/bbp.cscs.ch/project/proj30/home/gevaert/projections/sscx/flatmap/BB_Rat_SSCX_flatmap_v2.nrrd
-        brain_regions: /gpfs/bbp.cscs.ch/project/proj30/home/gevaert/projections/sscx/flatmap/brain_regions.nrrd
-        hierarchy: /gpfs/bbp.cscs.ch/project/proj30/home/gevaert/projections/sscx/flatmap/hierarchy.json
-        center_line_2d: 0
-        center_line_3d: -6000
+        base_system_name0:
+            flat_map: /path/to/flatmap0.nrrd
+            brain_regions: /path/to/brain_regions0.nrrd
+            hierarchy: /path/to/hierarchy.json
+            center_line_2d: 0
+            center_line_3d: -6000
+        base_system_name1:
+            flat_map: /path/to/flatmap1.nrrd
+            brain_regions: /path/to/brain_regions1.nrrd
+            hierarchy: /path/to/hierarchy.json
+            center_line_2d: 0
+            center_line_3d: -6000
 
 assignment
 ~~~~~~~~~~

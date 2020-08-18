@@ -14,7 +14,8 @@ RECIPE = macro.MacroConnections.load_recipe(
     utils.RECIPE_TXT,
     utils.REGION_MAP,
     region_subregion_translation=utils.get_region_subregion_translation(),
-    cache_dir=None
+    cache_dir=None,
+    flat_map_names=['Allen Dorsal Flatmap', ]
 )
 EMPTY_CONNECTED_CENTROIDS = pd.DataFrame(columns=['start_x', 'start_y', 'start_z',
                                                   'end_x', 'end_y', 'end_z',

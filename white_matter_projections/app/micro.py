@@ -97,6 +97,13 @@ def sample_all(ctx, target_population, side):
     target_population = target_population  # keep linter happy
     population = config.recipe.populations.query('population == @target_population')
 
+    projections = config.recipe.projections.query('target_population == @target_population')
+    projections = projections[['source_population', 'projection_name']]
+    base_system = {
+        config.recipe.projections_mapping[source_population][projection_name]['base_system']
+        for _, source_population, projection_name in projections.itertuples()}
+    assert len(base_system) == 1, f'Only single base_system allowed for sampling: {base_system}'
+
     brain_regions = config.atlas.load_data('brain_regions')
 
     sampling.sample_all(output,
@@ -105,6 +112,7 @@ def sample_all(ctx, target_population, side):
                         population,
                         brain_regions,
                         side,
+                        next(iter(base_system)),
                         dilation_size=config.volume_dilatation)
 
 
@@ -146,15 +154,10 @@ def assignment(ctx, target_population, side, reverse):
                    .join(hemisphere, on=join_cols)
                    )
 
-    projections_mapping = config.recipe.projections_mapping
-    closest_count = config.config['assignment']['closest_count']
-
     micro.assignment(output,
                      config,
                      allocations,
-                     projections_mapping,
                      side,
-                     closest_count,
                      reverse)
 
 

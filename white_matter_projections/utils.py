@@ -96,6 +96,7 @@ class Config(object):
             self.region_map,
             cache_dir=self.cache_dir,
             region_subregion_translation=self.region_subregion_translation,
+            flat_map_names=self.config['flat_mapping'].keys(),
         )
         return recipe
 
@@ -170,16 +171,16 @@ class Config(object):
 
         return region_layer_heights(layer_heights)
 
-    @lazy
-    def flat_map(self):
+    def flat_map(self, base_system):
         '''conversion from voxel space to 2d flat space'''
         from white_matter_projections import flat_mapping
-        config = self.config['flat_mapping']
-        flat_map = flat_mapping.FlatMap.load(config['flat_map'],
-                                             config['brain_regions'],
-                                             config['hierarchy'],
-                                             config['center_line_2d'],
-                                             config['center_line_3d'])
+        config = self.config['flat_mapping'][base_system]
+
+        flat_map = flat_mapping.FlatMap(config['flat_map'],
+                                        config['brain_regions'],
+                                        config['hierarchy'],
+                                        config['center_line_2d'],
+                                        config['center_line_3d'])
         return flat_map
 
     def get_cells(self, population_filter=None):

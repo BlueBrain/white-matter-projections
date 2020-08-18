@@ -108,20 +108,6 @@ def target_density(ctx, hemisphere):
 
 
 @cmd.command()
-@click.pass_context
-def source_mapping_triangles(ctx):
-    '''Plot all triangles of the source regions on the flat-map'''
-    from white_matter_projections import display
-    config = ctx.obj['config']
-
-    name = 'src_mapping_triangles'
-    with ctx.obj['figure'](name) as fig:
-        ax = fig.gca()
-        display.plot_allen_coloured_flat_map(ax, config, regions='all', only_right=True)
-        display.plot_source_region_triangles(ax, config, regions='all', only_right=True)
-
-
-@cmd.command()
 @click.option('-p', '--population', required=True)
 @click.pass_context
 def stats(ctx, population):

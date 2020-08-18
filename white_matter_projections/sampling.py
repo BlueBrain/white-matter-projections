@@ -27,10 +27,10 @@ SEGMENT_COLUMNS = (['afferent_section_type', 'section_id', 'segment_id', 'segmen
                    )
 
 
-def _ensure_only_flatmap_segments(config, segments):
+def _ensure_only_flatmap_segments(config, segments, tgt_base_system):
     '''Make sure 3D locations map to sensible 2D flatmap locations'''
     xyzs = (segments[SEGMENT_START_COLS].to_numpy() + segments[SEGMENT_END_COLS].to_numpy()) / 2.
-    mapper = mapping.CommonMapper.load_default(config)
+    mapper = mapping.CommonMapper.load(config, tgt_base_system)
     uvs = mapper.map_points_to_flat(xyzs)
     inside_mask = flat_mapping.FlatMap.mask_in_2d_flatmap(uvs)
 
@@ -141,14 +141,17 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
     return df
 
 
-def _full_sample_parallel(positions,
-                          voxel_dimensions,
-                          index_path,
-                          region,
-                          side,
-                          config,
-                          n_jobs=-2,
-                          chunks=None):
+def _full_sample_parallel(  # pylint: disable=too-many-arguments
+    positions,
+    voxel_dimensions,
+    index_path,
+    region,
+    side,
+    config,
+    base_system,
+    n_jobs=-2,
+    chunks=None
+):
     '''Parallel sample of all `positions`
 
     Args:
@@ -158,6 +161,7 @@ def _full_sample_parallel(positions,
         region(str): region of intererest
         side(str): 'left' or 'right'
         config(utils.Config): configuration
+        base_system(str): base_system used for flatmap to constrain sampled values
         n_jobs(int): number of jobs
         chunks(int): number of chunks
     '''
@@ -179,7 +183,7 @@ def _full_sample_parallel(positions,
        config.config.get('only_segments_from_region', False)):
         df = _ensure_only_segments_from_region(config, region, side, df)
 
-    df = _ensure_only_flatmap_segments(config, df)
+    df = _ensure_only_flatmap_segments(config, df, base_system)
 
     return df
 
@@ -242,7 +246,14 @@ def _get_flatindices_path(index_base, region, side):
     return index_path
 
 
-def sample_all(output, config, index_base, population, brain_regions, side, dilation_size=0):
+def sample_all(output,
+               config,
+               index_base,
+               population,
+               brain_regions,
+               side,
+               base_system,
+               dilation_size=0):
     '''sample all segments per region and side for a population
 
     Args:
@@ -252,6 +263,7 @@ def sample_all(output, config, index_base, population, brain_regions, side, dila
         population(population dataframe): with only the target population
         brain_regions(voxcell.VoxelData): tagged regions
         side(str): either 'left' or 'right'
+        base_system(str): base_system used for flatmap to constrain sampled values
         dilation_size(int): number of pixels used to dilate each brain sub-regions
 
     Output:
@@ -299,7 +311,13 @@ def sample_all(output, config, index_base, population, brain_regions, side, dila
         positions = np.unique(positions, axis=0)
 
         df = _full_sample_parallel(
-            positions, brain_regions.voxel_dimensions, index_path, row.region, side, config)
+            positions,
+            brain_regions.voxel_dimensions,
+            index_path,
+            row.region,
+            side,
+            config,
+            base_system)
 
         if df is None:
             continue
@@ -386,11 +404,11 @@ def _add_random_position_and_offset(segments, seed_sequence, chunk_size=1000000,
     return syns
 
 
-def _mask_xyzs_by_compensation_worker(config_path, src_uvs_path, xyzs, sl, sigma):
+def _mask_xyzs_by_compensation_worker(config_path, src_uvs_path, xyzs, sl, base_system, sigma):
     '''using the flatmap UVs from `src_uvs_path`, make sure `xyzs` are within the sigma distance'''
     config = utils.Config(config_path)
 
-    mapper = mapping.CommonMapper.load_default(config)
+    mapper = mapping.CommonMapper.load(config, base_system)
     pos = mapper.map_points_to_flat(xyzs[sl])
 
     # ignore positions outside of flatmap
@@ -406,15 +424,23 @@ def _mask_xyzs_by_compensation_worker(config_path, src_uvs_path, xyzs, sl, sigma
     return mask
 
 
-def _mask_xyzs_by_compensation(xyzs, config_path, src_uvs_path, sigma,
-                               n_jobs=-2,
-                               chunk_size=10000):
-    '''parallize find `xyzs` that are in `vertices`
+def _mask_xyzs_by_compensation(
+    xyzs,
+    config_path,
+    src_uvs_path,
+    base_system,
+    sigma,
+    n_jobs=-2,
+    chunk_size=10000
+):
+    '''parallize find `xyzs` that are near `compensated` locations (ie: `src_uvs`)
 
     Args:
         xyzs(array of positions): one position per row
         config_path(str): path to config file
         src_uvs_path(str): path to csv file w/ the flat-mapped source fibers used in compensation
+        base_system(str): base_system used to map xyzs
+        sigma(float): value from recipe
         n_jobs(int): number of jobs
         chunk_size(int): size of the chunks to be passed off
     '''
@@ -431,18 +457,20 @@ def _mask_xyzs_by_compensation(xyzs, config_path, src_uvs_path, sigma,
     worker = delayed(_mask_xyzs_by_compensation_worker)
     slices = [slice(start, start + chunk_size)
               for start in range(0, len(xyzs), chunk_size)]
-    masks = p(worker(config_path, src_uvs_path, xyzs, sl, sigma) for sl in slices)
+    masks = p(worker(config_path, src_uvs_path, xyzs, sl, base_system, sigma)
+              for sl in slices)
     mask = np.hstack(masks)
     L.debug('mask_xyzs_by_compensation done: with %s candidates', len(xyzs))
     return mask
 
 
-def _mask_xyzs_by_vertices_worker(config_path, vertices, xyzs, sl):
+def _mask_xyzs_by_vertices_worker(config_path, vertices, base_system, xyzs, sl):
     '''create mask of `xyzs` that fall whithin `vertices`
 
     Args:
         config_path(str): path to yaml config
         vertices(array): vertices in flat_space such where the rows of `xyzs` are masked to
+        base_system(str): base_system used for flatmap to constrain sampled values
         xyzs(array of positions): one position per row
         sl(slice): slice to operate on
 
@@ -450,25 +478,25 @@ def _mask_xyzs_by_vertices_worker(config_path, vertices, xyzs, sl):
         array of bools masking xyzs by rows
     '''
     config = utils.Config(config_path)
-
-    position_to_voxel = mapping.PositionToVoxel(config.flat_map.brain_regions)
-    voxel_to_flat = mapping.VoxelToFlat(config.flat_map.flat_map, config.flat_map.shape)
-
-    voxel_ijks, offsets = position_to_voxel(xyzs[sl])
-    pos, offset = voxel_to_flat(voxel_ijks, offsets)
-
-    mask = utils.in_2dtriangle(vertices, pos + offset)
-
+    tgt_mapper = mapping.CommonMapper.load(config, base_system)
+    pos = tgt_mapper.map_points_to_flat(xyzs[sl])
+    mask = utils.in_2dtriangle(vertices, pos)
     return mask
 
 
-def _mask_xyzs_by_vertices(xyzs, config_path, vertices, n_jobs=36, chunk_size=1000000):
+def _mask_xyzs_by_vertices(xyzs,
+                           config_path,
+                           vertices,
+                           base_system,
+                           n_jobs=36,
+                           chunk_size=1000000):
     '''parallize find `xyzs` that are in `vertices`
 
     Args:
         xyzs(array of positions): one position per row
         config_path(str): path to config file
         vertices(array): vertices in flat_space such where the rows of `xyzs` are masked to
+        base_system(str): base_system used for flatmap to constrain sampled values
         n_jobs(int): number of jobs
         chunk_size(int): size of the chunks to be passed off
     '''
@@ -484,18 +512,23 @@ def _mask_xyzs_by_vertices(xyzs, config_path, vertices, n_jobs=36, chunk_size=10
     worker = delayed(_mask_xyzs_by_vertices_worker)
     slices = [slice(start, start + chunk_size)
               for start in range(0, len(xyzs), chunk_size)]
-    masks = p(worker(config_path, vertices, xyzs, sl) for sl in slices)
+    masks = p(worker(config_path, vertices, base_system, xyzs, sl) for sl in slices)
     mask = np.hstack(masks)
     return mask
 
 
-def calculate_constrained_volume(config_path, brain_regions, region_id, vertices):
+def calculate_constrained_volume(config_path,
+                                 brain_regions,
+                                 region_id,
+                                 vertices,
+                                 base_system):
     '''calculate the total volume in subregion 'constrained' by vertices'''
     idx = np.array(np.nonzero(brain_regions.raw == region_id)).T
     if len(idx) == 0:
         return 0
     xyzs = brain_regions.indices_to_positions(idx)
-    count = np.sum(_mask_xyzs_by_vertices_worker(config_path, vertices, xyzs, slice(None)))
+    count = np.sum(_mask_xyzs_by_vertices_worker(
+        config_path, vertices, base_system, xyzs, slice(None)))
     return count * brain_regions.voxel_volume
 
 
@@ -505,7 +538,8 @@ def _pick_candidate_synapse_locations(  # pylint: disable=too-many-arguments
     segment_samples,
     projection_name,
     side,
-    mirrored_vertices,
+    vertices,
+    tgt_base_system,
     syns_count,
     use_compensation,
     seed
@@ -522,13 +556,14 @@ def _pick_candidate_synapse_locations(  # pylint: disable=too-many-arguments
             _mask_xyzs_by_compensation,
             config_path=config.config_path,
             src_uvs_path=get_compensation_src_uvs_path(output, side, projection_name),
+            base_system=tgt_base_system,
             sigma=_get_projection_sigma(config, source_population, projection_name))
     else:
         L.info('Using triangle masking')
         mask_function = functools.partial(_mask_xyzs_by_vertices,
                                           config_path=config.config_path,
-                                          vertices=mirrored_vertices,
-                                          )
+                                          vertices=vertices,
+                                          base_system=tgt_base_system)
 
     return _pick_candidate_synapse_locations_by_function(
         mask_function, segment_samples, syns_count, seed=seed)
@@ -625,12 +660,22 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
         center_line = config.flat_map.center_line_2d
         mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
 
+    # { ugly hack: store base system on config.recipe.projections?
+    tgt_base_system = {v['base_system']
+                       for vv in config.recipe.projections_mapping.values()
+                       for k, v in vv.items()
+                       if k == projection_name}
+    assert len(tgt_base_system) == 1, f'{tgt_base_system} has too many values'
+    tgt_base_system = next(iter(tgt_base_system))
+    # }
+
     densities = densities[['subregion_tgt', 'id_tgt', 'density']].drop_duplicates()
     groupby = densities.groupby(['subregion_tgt', 'id_tgt']).density.sum().iteritems()
+
     all_syns, zero_volume = [], []
     for i, ((layer, id_tgt), density) in enumerate(groupby):
         volume = calculate_constrained_volume(
-            config.config_path, brain_regions, id_tgt, mirrored_vertices)
+            config.config_path, brain_regions, id_tgt, mirrored_vertices, tgt_base_system)
 
         L.debug('  %s[%s %s]: %s', projection_name, layer, side, volume)
 
@@ -645,6 +690,7 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
             projection_name,
             side,
             mirrored_vertices,
+            tgt_base_system,
             syns_count=int(volume * density),
             use_compensation=config.config.get('compensation', False),
             seed=seed + i)
@@ -763,7 +809,7 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
         config(utils.Config): config instance
         projection_name(str): name of the projection
         side: 'left' or 'right'
-        sample_size(int=10000):
+        sample_size(int=10000): how big the sample size is
 
 
     As discussed in: https://bbpteam.epfl.ch/project/issues/browse/BBPP82-62
@@ -771,14 +817,22 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
     '''
     from white_matter_projections import micro
 
-    projection = config.recipe.get_projection(projection_name)
-    source_population, target_population, hemisphere = projection[
-        ['source_population', 'target_population', 'hemisphere']]
+    source_population, target_population, hemisphere = \
+        (
+            config.recipe.get_projection(projection_name)
+        )[['source_population', 'target_population', 'hemisphere']]
 
     tgt_gids = micro.get_gids_by_population(
         config.recipe.populations, config.get_cells, target_population)
+
+    tgt_base_system = mapping.base_system_from_projection(config,
+                                                          source_population,
+                                                          projection_name)
+
     left_cells, right_cells = micro.partition_cells_left_right(
-        config.get_cells().loc[tgt_gids], config.flat_map.center_line_3d)
+        config.get_cells().loc[tgt_gids],
+        config.flat_map(tgt_base_system).center_line_3d
+    )
 
     if side == 'left':
         tgt_locations = left_cells
@@ -835,19 +889,27 @@ def _calculate_compensation(config,
 
     mirrored = utils.is_mirror(side, hemisphere)
 
+    src_base_system = mapping.base_system_from_projection(config, source_population)
+    src_mapper = mapping.CommonMapper.load(config, src_base_system)
+
+    center_line_3d = src_mapper.flat_map.center_line_3d
     if mirrored:
-        src_locations = src_locations[src_locations[:, utils.Z] < config.flat_map.center_line_3d]
+        src_locations = src_locations[src_locations[:, utils.Z] < center_line_3d]
     else:
-        src_locations = src_locations[src_locations[:, utils.Z] > config.flat_map.center_line_3d]
+        src_locations = src_locations[src_locations[:, utils.Z] > center_line_3d]
 
-    mapper = mapping.CommonMapper.load_default(config)
-
-    src_uvs = np.unique(mapper.map_points_to_flat(src_locations), axis=0)
+    src_uvs = np.unique(src_mapper.map_points_to_flat(src_locations), axis=0)
     src_uvs = src_uvs[flat_mapping.FlatMap.mask_in_2d_flatmap(src_uvs), :]
 
-    src_uvs_mapped = mapper.map_flat_to_flat(source_population, projection_name, src_uvs, mirrored)
+    src_uvs_mapped = src_mapper.map_flat_to_flat(
+        source_population, projection_name, src_uvs, mirrored)
 
-    tgt_uvs = mapper.map_points_to_flat(tgt_locations)
+    tgt_base_system = mapping.base_system_from_projection(config,
+                                                          source_population,
+                                                          projection_name)
+    tgt_mapper = mapping.CommonMapper.load(config, tgt_base_system)
+
+    tgt_uvs = tgt_mapper.map_points_to_flat(tgt_locations)
 
     distances, _ = KDTree(src_uvs_mapped).query(tgt_uvs, 1)
 

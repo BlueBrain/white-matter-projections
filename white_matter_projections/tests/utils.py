@@ -281,11 +281,11 @@ def fake_flat_map():
     center_line_3d = (brain_regions.voxel_dimensions * brain_regions.shape +
                       brain_regions.offset) / 2.
 
-    return flat_mapping.FlatMap(flat_map,
-                                brain_regions,
-                                region_map,
-                                center_line_2d,
-                                center_line_3d[2])
+    return flat_mapping.FlatMapBase(flat_map,
+                                    brain_regions,
+                                    region_map,
+                                    center_line_2d,
+                                    center_line_3d[2])
 
 def fake_allocations():
     return {'source_population0': {'projection0': np.arange(10),
@@ -303,22 +303,28 @@ def fake_projection_mapping():
     ret = {'source_population0': {'projection0': {'target_population': 'target00',
                                                   'variance': 1.,
                                                   'vertices': vertices,
+                                                  'base_system': 'base_system0',
                                                   },
                                   'projection1': {'target_population': 'target01',
                                                   'variance': 1.,
                                                   'vertices': vertices,
+                                                  'base_system': 'base_system1',
                                                   },
                                   'vertices': vertices,
+                                  'base_system': 'base_system0',
                                   },
            'source_population1': {'projection0': {'target_population': 'target10',
                                                   'variance': 1.,
                                                   'vertices': vertices,
+                                                  'base_system': 'base_system0',
                                                   },
                                   'projection1': {'target_population': 'target11',
                                                   'variance': 1.,
                                                   'vertices': vertices,
+                                                  'base_system': 'base_system1',
                                                   },
                                   'vertices': vertices,
+                                  'base_system': 'base_system1',
                                   },
            }
     return ret

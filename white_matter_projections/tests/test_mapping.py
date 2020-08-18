@@ -6,7 +6,7 @@ import utils
 
 def test_PositionToVoxel():
     brain_regions, _ = utils.fake_brain_regions()
-    p2v = mapping.PositionToVoxel(brain_regions)
+    p2v = mapping._PositionToVoxel(brain_regions)
     voxel_ijks, offset = p2v(np.array([[0.5, 0.5, 0.5],
                                        [0, 0, 0],
                                        [1, 1, 1]]))
@@ -21,7 +21,7 @@ def test_PositionToVoxel():
 def test_VoxelToFlat():
     flat_map = utils.fake_flat_map()
 
-    v2fc = mapping.VoxelToFlat(flat_map.flat_map, flat_map.shape)
+    v2fc = mapping._VoxelToFlat(flat_map.flat_map, flat_map.shape)
 
     # working path, [4, 4, 4] is far from everything, so should be missing
     ijks, offsets = np.array([[1, 1, 1], [2, 2, 2], [4, 4, 4]]), 0.5 * np.ones((3, 3))
@@ -40,7 +40,7 @@ def test_FlatToFlat():
                              }
                             },
                            }
-    f2f = mapping.FlatToFlat(projections_mapping, center_line_2d=0.)
+    f2f = mapping._FlatToFlat(projections_mapping, center_line_2d=0.)
 
     src_flat_uvs = np.array([np.mean(verts, axis=0), ])
     tgt_flat_uvs = f2f(src_region='Region1', projection_name='Projection1',

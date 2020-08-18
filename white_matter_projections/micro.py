@@ -751,29 +751,49 @@ def _load_subsamples(samples_path, side, projection_name):
     return pd.concat(all_syns, ignore_index=True, sort=False)
 
 
-def assignment(output, config, allocations, projections_mapping, side,
-               closest_count, reverse):
-    '''perform assignment'''
+def assignment(output,
+               config,
+               allocations,
+               side,
+               reverse):
+    '''perform assignment
+
+    Args:
+        output(str): path to output to
+        config(utils.Config): config
+        allocations(pd.DataFrame): allocations
+        side(str): 'left' or 'right'
+        reverse(bool): whether to reverse the order of assignment
+    '''
     # pylint: disable=too-many-locals
-    samples_path = os.path.join(output, sampling.SAMPLE_PATH)
-
-    left_cells, right_cells = partition_cells_left_right(config.get_cells(),
-                                                         config.flat_map.center_line_3d)
-
     if config.delay_method == 'streamlines':
         streamline_metadata = streamlines.load(output, only_metadata=True)
 
-    mapper = mapping.CommonMapper.load_default(config)
-
-    conduction_velocity = config.config['conduction_velocity']
-
     count = len(allocations)
-    alloc = allocations[['projection_name', 'source_population', 'target_population',
-                         'sgids', 'hemisphere', ]].to_numpy()
-    if reverse:
-        alloc = reversed(alloc)
+    allocations = allocations[['projection_name', 'source_population', 'target_population',
+                               'sgids', 'hemisphere', ]]
 
-    for i, keys in enumerate(alloc):
+    src_base_system = {config.recipe.projections_mapping[s]['base_system']
+                       for s in allocations['source_population']}
+    assert len(src_base_system) == 1, f'want only one src base system: {src_base_system}'
+    src_base_system = next(iter(src_base_system))
+
+    src_mapper = mapping.CommonMapper.load(config, src_base_system)
+    left_cells, right_cells = partition_cells_left_right(config.get_cells(),
+                                                         src_mapper.flat_map.center_line_3d)
+
+    tgt_base_system = {config.recipe.projections_mapping[s][pn]['base_system']
+                       for _, pn, s in allocations[['projection_name',
+                                                    'source_population']].itertuples()}
+    assert len(tgt_base_system) == 1, f'want only one src base system: {tgt_base_system}'
+    tgt_base_system = next(iter(tgt_base_system))
+    tgt_mapper = mapping.CommonMapper.load(config, tgt_base_system)
+
+    allocations = allocations.to_numpy()
+    if reverse:
+        allocations = reversed(allocations)
+
+    for i, keys in enumerate(allocations):
         projection_name, source_population, target_population, sgids, hemisphere = keys
 
         output_path = os.path.join(output, ASSIGNMENT_PATH, side)
@@ -789,20 +809,25 @@ def assignment(output, config, allocations, projections_mapping, side,
         src_cells = separate_source_and_targets(
             left_cells, right_cells, sgids, hemisphere, side)
 
-        flat_src_uvs = mapper.map_points_to_flat(src_cells[utils.XYZ].values)
-        src_coordinates = mapper.map_flat_to_flat(
+        flat_src_uvs = src_mapper.map_points_to_flat(src_cells[utils.XYZ].to_numpy())
+        src_coordinates = src_mapper.map_flat_to_flat(
             source_population, projection_name, flat_src_uvs, utils.is_mirror(side, hemisphere))
         src_coordinates = pd.DataFrame(src_coordinates, index=src_cells.index)
 
         # tgt synapses in flat space
-        syns = _load_subsamples(samples_path, side, projection_name)
+        syns = _load_subsamples(os.path.join(output, sampling.SAMPLE_PATH), side, projection_name)
 
-        syns = utils.partition_left_right(syns, side, config.flat_map.center_line_3d)
-        flat_tgt_uvs = mapper.map_points_to_flat(syns[utils.XYZ].values)
+        syns = utils.partition_left_right(syns, side, tgt_mapper.flat_map.center_line_3d)
+        flat_tgt_uvs = tgt_mapper.map_points_to_flat(syns[utils.XYZ].to_numpy())
 
-        sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
         syns['sgid'] = assign_groups(
-            src_coordinates, flat_tgt_uvs, sigma, closest_count, seed=config.seed + i)
+            src_coordinates,
+            flat_tgt_uvs,
+            math.sqrt(
+                config.recipe.projections_mapping[source_population][projection_name]['variance']),
+            config.config['assignment']['closest_count'],
+            seed=config.seed + i)
+        # XXX: should be generate_seed!!!!!
 
         if config.delay_method == 'streamlines':
             source_region = utils.population2region(config.recipe.populations, source_population)
@@ -813,18 +838,22 @@ def assignment(output, config, allocations, projections_mapping, side,
                                                  'target_side == @side and '
                                                  'hemisphere == @hemisphere'
                                                  )
-            syns['delay'], gid2row = _calculate_delay_streamline(src_cells,
-                                                                 syns,
-                                                                 metadata,
-                                                                 conduction_velocity,
-                                                                 config.rng
-                                                                 )
+
+            syns['delay'], gid2row = _calculate_delay_streamline(
+                src_cells,
+                syns,
+                metadata,
+                config.config['conduction_velocity'],
+                config.rng
+            )
+
             utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
         elif config.delay_method == 'dive':
             syns['delay'] = _calculate_delay_dive(
-                src_cells, syns, conduction_velocity, config.atlas)
+                src_cells, syns, config.config['conduction_velocity'], config.atlas)
         else:
-            syns['delay'] = _calculate_delay_direct(src_cells, syns, conduction_velocity)
+            syns['delay'] = _calculate_delay_direct(
+                src_cells, syns, config.config['conduction_velocity'])
 
         # TODO: make a parameter; currently from a builderRecipeAllPathways.xml
         neuralTransmitterReleaseDelay = 0.1
