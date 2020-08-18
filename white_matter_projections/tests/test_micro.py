@@ -181,18 +181,10 @@ def test__greedy_gids_allocation_from_counts():
 
 
 def test_get_gids_by_population():
-    populations = yaml.load('''\
-- name: POP1_ALL_LAYERS
-  atlas_region:
-      name: ECT
-      subregions: [l1, l2, l3, l4, l5, l6]
-  filters: []
-''', Loader=yaml.FullLoader)
-    _, populations = macro._parse_populations(populations,
+    pop_cat, populations = macro._parse_populations(utils.RECIPE['populations'],
                                               utils.REGION_MAP,
                                               utils.SUBREGION_TRANSLATION,
                                               utils.REGION_SUBREGION_FORMAT)
-
     def cells(_):
         return pd.DataFrame({'layer': [1, 1, 2, 3, ],
                              'region': ['ECT', 'ECT', 'FRP', 'ECT', ],

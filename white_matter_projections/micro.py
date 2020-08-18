@@ -17,6 +17,7 @@ This includes
 from collections import defaultdict
 from enum import Enum
 from functools import partial
+from glob import glob
 import itertools as it
 import logging
 import math
@@ -489,9 +490,9 @@ def allocate_projections(recipe, get_cells):
 
         ret[source_population] = allocate_gids_to_targets(ptype, interaction_matrix, gids)
 
+        used = set.union(*map(set, ret[source_population].values()))
         L.info('... has %d gids, %d used, %0.3f',
-               len(gids), len(ret[source_population]),
-               len(ret[source_population]) / float(len(gids)))
+               len(gids), len(used), len(used) / float(len(gids)))
 
     if skipped_populations:
         L.warning('Skipping populations because empty p-types: %s', sorted(skipped_populations))
@@ -737,16 +738,28 @@ def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction
     return delay.astype(np.float32), gid2row
 
 
+def _load_subsamples(samples_path, side, projection_name):
+    '''load all samples for `projection_name`
+
+    Note: filename convenction has to match sampling.py:_subsample_per_source
+    '''
+    path = os.path.join(samples_path, side, projection_name + '_*.feather')
+    files = glob(path)
+    L.debug('load_subsamples: %s -> %s', path, files)
+    all_syns = [utils.read_frame(p) for p in files]
+    return pd.concat(all_syns, ignore_index=True, sort=False)
+
+
 def assignment(output, config, allocations, projections_mapping, side,
                closest_count, reverse):
-    '''perform ssignment'''
+    '''perform assignment'''
     # pylint: disable=too-many-locals
     samples_path = os.path.join(output, sampling.SAMPLE_PATH)
 
     left_cells, right_cells = partition_cells_left_right(config.get_cells(),
                                                          config.flat_map.center_line_3d)
 
-    if config.delay_calc == 'streamlines':
+    if config.delay_method == 'streamlines':
         streamline_metadata = streamlines.load(output, only_metadata=True)
 
     mapper = mapping.CommonMapper.load_default(config)
@@ -781,14 +794,15 @@ def assignment(output, config, allocations, projections_mapping, side,
         src_coordinates = pd.DataFrame(src_coordinates, index=src_cells.index)
 
         # tgt synapses in flat space
-        syns = utils.read_frame(os.path.join(samples_path, side, projection_name + '.feather'))
+        syns = _load_subsamples(samples_path, side, projection_name)
+
         syns = partition_syns(syns, side, config.flat_map.center_line_3d)
         flat_tgt_uvs = mapper.map_points_to_flat(syns[utils.XYZ].values)
 
         sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
         syns['sgid'] = assign_groups(src_coordinates, flat_tgt_uvs, sigma, closest_count)
 
-        if config.delay_calc == 'streamlines':
+        if config.delay_method == 'streamlines':
             source_region = utils.population2region(config.recipe.populations, source_population)
             target_region = utils.population2region(config.recipe.populations, target_population)
             source_region, target_region = source_region, target_region  # trick pylint
@@ -802,10 +816,13 @@ def assignment(output, config, allocations, projections_mapping, side,
                                                                  metadata,
                                                                  conduction_velocity)
             utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
-        elif config.delay_calc == 'dive':
+        elif config.delay_method == 'dive':
             syns['delay'] = _calculate_delay_dive(
                 src_cells, syns, conduction_velocity, config.atlas)
         else:
             syns['delay'] = _calculate_delay_direct(src_cells, syns, conduction_velocity)
 
+        # TODO: make a parameter; currently from a builderRecipeAllPathways.xml
+        neuralTransmitterReleaseDelay = 0.1
+        syns['delay'] += neuralTransmitterReleaseDelay
         utils.write_frame(output_path, syns)
