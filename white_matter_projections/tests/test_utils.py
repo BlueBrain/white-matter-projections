@@ -190,3 +190,12 @@ def test_read_write_frame():
         res = utils.read_frame(path, columns=['a', ])
         assert_array_equal(res.index, df.index)
         ok_('b' not in res)
+
+def test_partition_left_right():
+    df = pd.DataFrame(np.arange(10) + .1, columns=['z', ])
+    left = utils.partition_left_right(df, side='left', center_line_3d=5.1)
+    eq_(len(left), 6)
+
+    right = utils.partition_left_right(df, side='right', center_line_3d=5.1)
+    eq_(len(right), 4)
+

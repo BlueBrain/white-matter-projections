@@ -346,6 +346,16 @@ def read_frame(path, columns=None):
     return None
 
 
+def partition_left_right(df, side, center_line_3d):
+    '''return df from `side` based on `center_line_3d`'''
+    assert side in ('left', 'right', )
+    if side == 'right':
+        mask = center_line_3d < df.z
+    else:
+        mask = df.z <= center_line_3d
+    return df[mask]
+
+
 def mirror_vertices_y(vertices, center_line):
     '''vertices are only defined in recipe for right side of brain, transpose to left'''
     ret = vertices.copy()

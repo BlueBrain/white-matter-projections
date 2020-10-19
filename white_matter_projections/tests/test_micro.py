@@ -373,15 +373,6 @@ def test_partition_cells_left_right():
     eq_(len(right), 4)
 
 
-def test_partition_syns():
-    syns = pd.DataFrame(np.arange(10) + .1, columns=['z', ])
-    left = micro.partition_syns(syns, side='left', center_line_3d=5.1)
-    eq_(len(left), 6)
-
-    right = micro.partition_syns(syns, side='right', center_line_3d=5.1)
-    eq_(len(right), 4)
-
-
 def test_separate_source_and_targets():
     cells = pd.DataFrame(np.arange(10) + .1, columns=['z', ])
     cells['x'] = 1

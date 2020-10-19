@@ -8,7 +8,8 @@ from nose.tools import ok_, eq_, assert_raises
 from white_matter_projections import sampling, utils
 from numpy.testing import assert_allclose
 from pandas.testing import assert_frame_equal
-from utils import (tempdir, fake_brain_regions, fake_flat_map,)
+from utils import (tempdir, fake_brain_regions, fake_flat_map,
+                   )
 from mock import patch, Mock
 
 
@@ -19,6 +20,21 @@ def _full_sample_worker_mock(min_xyzs, index_path, voxel_dimensions):
 
     df = pd.concat([df for _ in min_xyzs], ignore_index=True, sort=False)
     return df
+
+
+def test__ensure_only_segments_from_region():
+    config = Mock()
+    config.flat_map.center_line_3d = 10.
+    config.get_cells.return_value = pd.DataFrame(
+        {'region': ['region0', 'region1', 'region0', 'region1'],
+         'z': [1, 1, 20, 20],
+        },
+        index=[10, 20, 30, 40])
+    region, side = 'region0', 'right'
+    df = pd.DataFrame({'tgid': [10, 20, 30, 40],})
+
+    ret = sampling._ensure_only_segments_from_region(config, region, side, df)
+    assert_allclose(ret.tgid.to_numpy(), [30])
 
 
 @patch('white_matter_projections.sampling.synapses')
@@ -101,16 +117,20 @@ def test_sample_all():
         index_base = os.path.join(tmp, 'fake_index_base')
         os.makedirs(os.path.join(index_base, 'FRP@left'))
         os.makedirs(os.path.join(index_base, 'FRP@right'))
+        with open(os.path.join(index_base, 'FRP@left', 'SEGMENT_index.dat'), 'w') as fd:
+            fd.write('FRP@left')
+        with open(os.path.join(index_base, 'FRP@right', 'SEGMENT_index.dat'), 'w') as fd:
+            fd.write('FRP@right')
 
         with patch('white_matter_projections.sampling._full_sample_parallel') as mock_fsp:
             mock_fsp.return_value = df
-            sampling.sample_all(tmp, index_base, population, brain_regions, side)
+            sampling.sample_all(tmp, None, index_base, population, brain_regions, side, )
             for l in ('l2', 'l3'):  # note: 'l1' skipped b/c id doesn't exist
                 ok_(os.path.exists(os.path.join(tmp, sampling.SAMPLE_PATH, 'FRP_%s_right.feather' % l)))
             eq_(mock_fsp.call_count, 3)
 
             mock_fsp.reset_mock()
-            sampling.sample_all(tmp, index_base, population, brain_regions, side)
+            sampling.sample_all(tmp, None, index_base, population, brain_regions, side)
             eq_(mock_fsp.call_count, 0)
 
 

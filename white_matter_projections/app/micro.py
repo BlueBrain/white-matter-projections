@@ -59,6 +59,7 @@ def sample_all(ctx, target_population, side):
     brain_regions = config.atlas.load_data('brain_regions')
 
     sampling.sample_all(output,
+                        config,
                         index_base,
                         population,
                         brain_regions,

@@ -552,16 +552,6 @@ def partition_cells_left_right(cells, center_line_3d):
     return left_cells, right_cells
 
 
-def partition_syns(syns, side, center_line_3d):
-    '''return synapses from `side` based on `center_line_3d`'''
-    assert side in ('left', 'right', )
-    if side == 'right':
-        syns_mask = center_line_3d < syns.z
-    else:
-        syns_mask = syns.z <= center_line_3d
-    return syns[syns_mask]
-
-
 def separate_source_and_targets(left_cells, right_cells, sgids, hemisphere, side):
     '''based on the hemisphere and side, return the source cell positions, and synapses
 
@@ -796,7 +786,7 @@ def assignment(output, config, allocations, projections_mapping, side,
         # tgt synapses in flat space
         syns = _load_subsamples(samples_path, side, projection_name)
 
-        syns = partition_syns(syns, side, config.flat_map.center_line_3d)
+        syns = utils.partition_left_right(syns, side, config.flat_map.center_line_3d)
         flat_tgt_uvs = mapper.map_points_to_flat(syns[utils.XYZ].values)
 
         sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])

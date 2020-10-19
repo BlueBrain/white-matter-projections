@@ -28,6 +28,20 @@ SEGMENT_COLUMNS = sorted(['section_id', 'segment_id', 'segment_length', ] +
                          )
 
 
+def _ensure_only_segments_from_region(config, region, side, df):
+    '''Check that the segments in `df` are only from region@side'''
+    region = region  # trick pylint
+    cells = config.get_cells().query('region == @region')
+    cells = utils.partition_left_right(cells, side, config.flat_map.center_line_3d)
+
+    orig_len = len(df)
+    df = df[np.isin(df.tgid.to_numpy(), cells.index.to_numpy())]
+    L.debug('Removed %d of %d (%.2f %%) locations due to not being of the correct region',
+            orig_len - len(df), orig_len, (orig_len - len(df)) / float(orig_len))
+
+    return df
+
+
 def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
     '''for every voxel defined by the lower coordinate in min_xzys, gather segments
 
@@ -55,6 +69,8 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
         if df is None or len(df) == 0:
             continue
 
+        del df['Section.NEURITE_TYPE'], df['Segment.R1'], df['Segment.R2']
+
         starts, ends = df[start_cols].values, df[end_cols].values
         df['segment_length'] = np.linalg.norm(ends - starts, axis=1).astype(np.float32)
 
@@ -75,8 +91,7 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
             del df[name]
 
         df['tgid'] = pd.to_numeric(df['gid'], downcast='unsigned')
-
-        del df['Section.NEURITE_TYPE'], df['Segment.R1'], df['Segment.R2'], df['gid']
+        del df['gid']
         #  }
 
         chunks.append(df)
@@ -88,25 +103,44 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
     return df
 
 
-def _full_sample_parallel(positions, voxel_dimensions, index_path, n_jobs=-2, chunks=None):
+def _full_sample_parallel(positions,
+                          voxel_dimensions,
+                          index_path,
+                          region,
+                          side,
+                          config,
+                          n_jobs=-2,
+                          chunks=None):
     '''Parallel sample of all `positions`
 
     Args:
         positions(iterable of float positions): the lower corner of the voxel to be sampled
         voxel_dimensions: 3D values for the voxel size
         index_path(str): directory where FLATIndex can find SEGMENT_*
+        region(str): region of intererest
+        side(str): 'left' or 'right'
+        config(utils.Config): configuration
         n_jobs(int): number of jobs
-        chunks(int): size of each chunk
+        chunks(int): number of chunks
     '''
     if chunks is None:
         chunks = (len(positions) // 500) + 1
 
+    L.debug('_full_sample_parallel: %d positions for %s[%s], %d chunks, %d jobs',
+            len(positions), region, side, chunks, n_jobs)
+
     worker = delayed(_full_sample_worker)
     # TODO: check if using multiprocessing backend is faster here
-    p = Parallel(n_jobs=n_jobs)
-    df = p(worker(xyzs, index_path, voxel_dimensions)
+    p = Parallel(n_jobs=n_jobs,
+                 # verbose=150,
+                 )
+    df = p(worker(xyzs, index_path, voxel_dimensions, region, side)
            for xyzs in np.array_split(positions, chunks, axis=0))
     df = pd.concat(df, ignore_index=True, sort=False)
+
+    if not _is_split_index(index_path, region, side):
+        df = _ensure_only_segments_from_region(config, region, side, df)
+
     return df
 
 
@@ -114,7 +148,7 @@ def _generate_dilatation_structure(dimension, dilatation_size):
     """ Create a voxel sphere like binary structure of radius `nb_pixels` """
     # pylint: disable=assignment-from-no-return
     output = np.fabs(np.indices([dilatation_size * 2 + 1] * dimension) - dilatation_size)
-    output = np.add.reduce(output, 0)
+    output = np.add.reduce(output, 0)  # pylint: disable=assignment-from-no-return
     return output <= dilatation_size
 
 
@@ -152,11 +186,28 @@ def _dilate_region(brain_regions, region_ids, dilation_size):
     return ret
 
 
-def sample_all(output, index_base, population, brain_regions, side, dilation_size=0):
+def _is_split_index(index_base, region, side):
+    '''Check if flatindex indices are split'''
+    return os.path.exists(os.path.join(index_base, region + '@' + side, 'SEGMENT_index.dat'))
+
+
+def _get_flatindices_path(index_base, region, side):
+    '''Handle the 'split' or 'monolithic' index case'''
+    index_path = None
+    if _is_split_index(index_base, region, side):
+        index_path = os.path.join(index_base, region + '@' + side)
+    elif os.path.exists(os.path.join(index_base, 'SEGMENT_index.dat')):
+        index_path = index_base
+
+    return index_path
+
+
+def sample_all(output, config, index_base, population, brain_regions, side, dilation_size=0):
     '''sample all segments per region and side for a population
 
     Args:
-        output(str):
+        output(str): path to output
+        config(utils.Config): config
         index_base(str): path to segment indices base
         population(population dataframe): with only the target population
         brain_regions(voxcell.VoxelData): tagged regions
@@ -193,8 +244,8 @@ def sample_all(output, index_base, population, brain_regions, side, dilation_siz
     for path, row in to_sample:
         L.debug('Sampling %s[%s@%s] -> %s', row.region, row.subregion, side, path)
 
-        index_path = os.path.join(index_base, row.region + '@' + side)
-        if not os.path.exists(index_path):
+        index_path = _get_flatindices_path(index_base, row.region, side)
+        if index_path is None:
             L.warning('Index %s is missing, skipping: %s[%s@%s]',
                       index_path, row.region, row.subregion, side)
             continue
@@ -207,7 +258,8 @@ def sample_all(output, index_base, population, brain_regions, side, dilation_siz
         positions = brain_regions.indices_to_positions(indices[row.id])
         positions = np.unique(positions, axis=0)
 
-        df = _full_sample_parallel(positions, brain_regions.voxel_dimensions, index_path)
+        df = _full_sample_parallel(
+            positions, brain_regions.voxel_dimensions, index_path, row.region, side, config)
 
         if df is None:
             continue
