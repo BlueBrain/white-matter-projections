@@ -12,8 +12,7 @@ from scipy.spatial import KDTree
 from joblib import Parallel, delayed
 from neurom import NeuriteType
 from projectionizer import synapses
-from projectionizer.utils import (ErrorCloseToZero, normalize_probability,
-                                  )
+from projectionizer.utils import ErrorCloseToZero, normalize_probability
 from white_matter_projections import utils, mapping
 
 
@@ -26,6 +25,24 @@ SEGMENT_COLUMNS = sorted(['section_id', 'segment_id', 'segment_length', ] +
                          SEGMENT_START_COLS + SEGMENT_END_COLS +
                          ['tgid']
                          )
+
+
+def _ensure_only_flatmap_segments(flat_map, segments):
+    '''Make sure 3D locations map to sensible 2D flatmap locations'''
+    position_to_voxel = mapping.PositionToVoxel(flat_map.brain_regions)
+    voxel_to_flat = mapping.VoxelToFlat(flat_map.flat_map, flat_map.shape)
+
+    xyzs = (segments[SEGMENT_START_COLS].to_numpy() + segments[SEGMENT_END_COLS].to_numpy()) / 2.
+    voxel_ijks, offsets = position_to_voxel(xyzs)
+    pos, _ = voxel_to_flat(voxel_ijks, offsets)
+
+    mask = (pos != (-1, -1)).all(axis=1)
+    segments = segments[mask]
+    L.debug('Removed %d of %d (%.2f%%) locations due to not having a flatmap location',
+            len(mask) - len(segments), len(mask),
+            100. * (len(mask) - len(segments)) / float(len(mask)))
+
+    return segments
 
 
 def _ensure_only_segments_from_region(config, region, side, df):
@@ -134,12 +151,14 @@ def _full_sample_parallel(positions,
     p = Parallel(n_jobs=n_jobs,
                  # verbose=150,
                  )
-    df = p(worker(xyzs, index_path, voxel_dimensions, region, side)
+    df = p(worker(xyzs, index_path, voxel_dimensions)
            for xyzs in np.array_split(positions, chunks, axis=0))
     df = pd.concat(df, ignore_index=True, sort=False)
 
     if not _is_split_index(index_path, region, side):
         df = _ensure_only_segments_from_region(config, region, side, df)
+
+    df = _ensure_only_flatmap_segments(config.flat_map, df)
 
     return df
 
