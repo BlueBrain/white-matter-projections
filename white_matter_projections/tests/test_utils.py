@@ -158,3 +158,35 @@ def test_population2region():
 def test_find_executable():
     ok_('bin/sh' in utils.find_executable('sh'))
     eq_(None, utils.find_executable('a_fake_executable_which_does_not_exist'))
+
+
+def test_read_write_frame():
+    data = np.arange(10)
+    df = pd.DataFrame({'a': data, 'b': data + 25})
+    df.index += 10
+
+    with test_utils.tempdir('test_read_write_frame') as tmp:
+        path = os.path.join(tmp, 'test.feather')
+
+        #no need to care about index
+        utils.write_frame(path, df.copy())
+        res = utils.read_frame(path)
+        assert_array_equal(res.index, df.index - 10)
+        ok_('a' in res)
+        ok_('b' in res)
+
+        res = utils.read_frame(path, columns=['a'])
+        ok_('b' not in res)
+
+        #care about index
+        utils.write_frame(path, df.copy(), reset_index=False)
+        res = utils.read_frame(path)
+        assert_array_equal(res.index, df.index)
+
+        res = utils.read_frame(path, columns=['a', 'index', ])
+        assert_array_equal(res.index, df.index)
+        ok_('b' not in res)
+
+        res = utils.read_frame(path, columns=['a', ])
+        assert_array_equal(res.index, df.index)
+        ok_('b' not in res)

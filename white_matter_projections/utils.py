@@ -17,11 +17,6 @@ import voxcell
 from voxcell.nexus import voxelbrain
 import yaml
 
-try:
-    from functools import lru_cache
-except ImportError:
-    from backports.functools_lru_cache import lru_cache
-
 
 L = logging.getLogger(__name__)
 
@@ -165,10 +160,21 @@ class Config(object):
         '''format string describing the region/subregion -> acronym conversion'''
         return self.config.get('region_subregion_format', '{region}_{subregion}')
 
-    @lru_cache()
     def get_cells(self, population_filter=None):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
-        cells = self.circuit.cells.get()
+        m = hashlib.sha256()
+        m.update(self.config['circuit_config'])
+        hexdigest = m.hexdigest()
+
+        path = os.path.join(self.cache_dir, 'cells_%s.feather' % hexdigest)
+        if os.path.exists(path):
+            cells = read_frame(path)
+        else:
+            cells = self.circuit.cells.get()
+            # orientation is removed since it historically hasn't been used
+            # and it's a large *object* (not an array)
+            del cells['orientation']
+            write_frame(path, cells)
 
         if population_filter is not None and population_filter != 'Empty':
             categories = self.config['populations_filters'][population_filter]
@@ -309,7 +315,7 @@ def ensure_path(path):
     return path
 
 
-def write_frame(path, df):
+def write_frame(path, df, reset_index=True):
     """Write a DataFrame to disk using feather serialization format
 
     Note: This performs destructive changes to the dataframe, caller must
@@ -318,7 +324,7 @@ def write_frame(path, df):
     assert path.endswith('.feather'), 'Can only write feathers at the moment'
 
     df.columns = map(str, df.columns)
-    df.reset_index(drop=True, inplace=True)
+    df.reset_index(drop=reset_index, inplace=True)
     feather.write_feather(df, path)
 
 
@@ -329,7 +335,13 @@ def read_frame(path, columns=None):
     source = pyarrow.OSFile(path)
 
     if path.endswith('.feather'):
-        return feather.FeatherReader(source).read_pandas(columns)
+        if columns is not None and 'index' not in columns:
+            columns.append('index')
+        df = feather.FeatherReader(source).read_pandas(columns)
+        if 'index' in df:
+            df = df.set_index('index')
+        return df
+
     assert False, 'Need to end with .feather: %s' % path
     return None
 

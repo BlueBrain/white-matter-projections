@@ -17,7 +17,6 @@ setup(
     download_url='ssh://bbpcode.epfl.ch/nse/white-matter-projections',
     license='BBP-internal-confidential',
     install_requires=[
-        'backports.functools_lru_cache>=1.5',
         'jinja2>=2.10',
         'bluepy>=0.14.3',
         'click>=6.0',
@@ -27,6 +26,7 @@ setup(
         'pandas>=0.23.0',
         'projectionizer>=1.2.0.dev1',
         'pyarrow>=0.11.1',
+        'pyrsistent==0.16.1',  # newer versions don't work with py2.7
         'pyyaml>=3.12',
         'requests>=2.19.1',
         'seaborn>=0.8.1',
