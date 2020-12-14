@@ -26,7 +26,7 @@ def test_VoxelToFlat():
     # working path, [4, 4, 4] is far from everything, so should be missing
     ijks, offsets = np.array([[1, 1, 1], [2, 2, 2], [4, 4, 4]]), 0.5 * np.ones((3, 3))
     idx, idx_offsets = v2fc(ijks, offsets)
-    assert_allclose(idx, np.array([[1, 1], [2, 2], [0, 0], ]))
+    assert_allclose(idx, np.array([[1, 1], [2, 2], [-1, -1], ]))
     assert_allclose(idx_offsets, np.array([[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], ]))
 
 
