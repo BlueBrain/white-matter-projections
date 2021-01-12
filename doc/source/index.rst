@@ -7,6 +7,7 @@ Contents:
    :maxdepth: 2
 
    flatmap
+   config
 
 
 Indices and tables
