@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import voxcell
 from voxcell.nexus import voxelbrain
+from mock import Mock
 
 from nose.tools import eq_, ok_, assert_raises
 import utils as test_utils
@@ -198,4 +199,77 @@ def test_partition_left_right():
 
     right = utils.partition_left_right(df, side='right', center_line_3d=5.1)
     eq_(len(right), 4)
+
+
+def test_normalize_layer_profiles():
+    layer_heights = pd.DataFrame([['S1DZ', 665., 180., 499., 141., 335., 156.],
+                                  ['S1DZO', 653., 176., 489., 138., 329., 153.],
+                                  ],
+                                 columns=['name', '6a', '4', '5', '2', '3', '1']).set_index('name')
+    profiles = pd.DataFrame([['profile_1', '1', 2.63],
+                             ['profile_1', '2', 1.65],
+                             ['profile_1', '3', 1.65],
+                             ['profile_1', '4', 0.39],
+                             ['profile_1', '5', 0.35],
+                             ['profile_1', '6a', 0.35],
+                             ['profile_2', '1', 2.79],
+                             ['profile_2', '2', 0.42],
+                             ['profile_2', '3', 0.42],
+                             ['profile_2', '4', 0.32],
+                             ['profile_2', '5', 1.19],
+                             ['profile_2', '6a', 0.44],
+                             ['profile_3', '1', 0.36],
+                             ['profile_3', '2', 1.59],
+                             ['profile_3', '3', 1.59],
+                             ['profile_3', '4', 1.37],
+                             ['profile_3', '5', 1.29],
+                             ['profile_3', '6a', 0.41],
+                             ['profile_4', '1', 1.89],
+                             ['profile_4', '2', 0.36],
+                             ['profile_4', '3', 0.36],
+                             ['profile_4', '4', 0.05],
+                             ['profile_4', '5', 0.32],
+                             ['profile_4', '6a', 2.79],
+                             ['profile_5', '1', 0.54],
+                             ['profile_5', '2', 1.26],
+                             ['profile_5', '3', 1.26],
+                             ['profile_5', '4', 0.55],
+                             ['profile_5', '5', 0.47],
+                             ['profile_5', '6a', 2.12],
+                             ['profile_6', '1', 0.18],
+                             ['profile_6', '2', 0.18],
+                             ['profile_6', '3', 0.18],
+                             ['profile_6', '4', 0.15],
+                             ['profile_6', '5', 1.11],
+                             ['profile_6', '6a', 4.18],
+                             ],
+                            columns=['name', 'subregion', 'relative_density']
+        )
+    ret = utils.normalize_layer_profiles(layer_heights, profiles)
+    expected = pd.DataFrame.from_dict({'profile_1': {'S1DZO': 1.180785, 'S1DZ': 1.180914},
+                                       'profile_2': {'S1DZO': 1.251485, 'S1DZ': 1.251290},
+                                       'profile_3': {'S1DZO': 1.000376, 'S1DZ': 1.000020},
+                                       'profile_4': {'S1DZO': 0.792819, 'S1DZ': 0.793501},
+                                       'profile_5': {'S1DZO': 0.813591, 'S1DZ': 0.814063},
+                                       'profile_6': {'S1DZO': 0.568273, 'S1DZ': 0.568739},
+                                       })
+    expected.index.name = 'region'
+    pd.testing.assert_frame_equal(ret, expected)
+
+
+def test_calculate_region_layer_heights():
+    atlas = Mock()
+    brain_regions, region_map = test_utils.fake_brain_regions()
+    raw = np.zeros((5, 5, 5, 2))
+    raw[:, :, :, 1] = 1.
+    ph = voxcell.VoxelData(raw, np.ones(3), offset=np.zeros(3))
+    atlas.load_data = lambda name: brain_regions if name == 'brain_regions' else ph
+    regions = ['one']
+    layers = ['1', ]
+    ret = utils.calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits={})
+    eq_(ret, {'one': {'1': 1.0,}})
+
+    layer_splits = {'1': [('1a', 0.25), ('1b', 0.75)]}
+    ret = utils.calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits)
+    eq_(ret, {'one': {'1a': 0.25, '1b': 0.75}})
 

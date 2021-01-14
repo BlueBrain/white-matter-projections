@@ -26,7 +26,6 @@ XYZ = list('xyz')
 SIDES = ('left', 'right')
 HEMISPHERE = CategoricalDtype(categories=['ipsi', 'contra'], ordered=True)
 SIDE = CategoricalDtype(categories=SIDES, ordered=True)
-LAYERS = ('l1', 'l2', 'l3', 'l4', 'l5', 'l6a', 'l6b', )
 
 
 class Config(object):
@@ -131,8 +130,9 @@ class Config(object):
             with open(path) as fd:
                 layer_heights = json.load(fd)
         else:
+            layers = list(self.config.recipe.layer_profiles.subregion.unique())
             layer_heights = calculate_region_layer_heights(
-                self.atlas, self.region_map, self.regions)
+                self.atlas, self.region_map, self.regions, layers, self.config['layers_splits'])
             with open(path, 'w') as fd:
                 json.dump(layer_heights, fd)
 
@@ -195,32 +195,40 @@ class Config(object):
         return path
 
 
-def calculate_region_layer_heights(atlas, region_map, regions):
-    '''find region layer heights for layers 1 - 6'''
-    brain_regions = atlas.load_data('brain_regions')
+def calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits):
+    '''find region layer heights for layers
 
-    phs = [atlas.load_data('[PH]%d' % layer) for layer in range(1, 7)]
+    Args:
+        atlas(voxcell.nexus.voxelbrain): atlas to be used for region lookup
+        region_map(voxcell.RegionMap): hierarchy for region lookup
+        regions(list): regions to have their height calculated
+        layers(list): the subregions of interest
+        layer_splits(dict): subregion name -> (new_name, factor)
+
+    Note: the word 'layer' is used to follow the recipe/paper convention
+    '''
+    brain_regions = atlas.load_data('brain_regions')
 
     thicknesses = collections.defaultdict(dict)
     for region in regions:
         ids = region_map.find(region, 'acronym', 'id', with_descendants=True)
         mask = np.isin(brain_regions.raw, list(ids))
-        for layer in range(1, 7):
-            ph = phs[layer - 1].raw[mask]
-            thicknesses[region]['l%s' % layer] = np.mean(ph[:, 1] - ph[:, 0])
+        for layer in layers:
+            ph = atlas.load_data('[PH]%s' % layer).raw[mask]
 
-        # split l6 -> l6a & l6b; each half as thick
-        thicknesses[region]['l6a'] = thicknesses[region]['l6b'] = thicknesses[region]['l6'] / 2.
-        del thicknesses[region]['l6']
+            thickness = np.mean(ph[:, 1] - ph[:, 0])
+            if layer in layer_splits:
+                for name, fraction in layer_splits[layer]:
+                    thicknesses[region][name] = thickness * fraction
+            else:
+                thicknesses[region][layer] = thickness
 
-    thicknesses = dict(thicknesses)
-
-    return thicknesses
+    return dict(thicknesses)
 
 
-def region_layer_heights(layer_heights, columns=LAYERS):
+def region_layer_heights(layer_heights):
     '''convert layer heights dictionary to pandas DataFrame'''
-    return pd.DataFrame.from_dict(layer_heights, orient='index', columns=columns)
+    return pd.DataFrame.from_dict(layer_heights, orient='index')
 
 
 def perform_module_grouping(df, module_grouping):
@@ -257,12 +265,17 @@ def normalize_layer_profiles(layer_heights, profiles):
         layer widths of the target region, p the layer profile of a projection:
            x  = sum(w) / sum(w * p)
     '''
-    ret = pd.DataFrame(index=layer_heights.index, columns=profiles.name.unique())
+    ret = pd.DataFrame(index=layer_heights.index, columns=profiles.name.unique(), dtype=np.float64)
     ret.index.name = 'region'
+
     for profile_name, profile in profiles.groupby('name'):
         for region in layer_heights.index:
-            w = layer_heights.loc[region].values
-            p = profile['relative_density'].values
+            w = layer_heights.loc[region].to_numpy()
+            p = (profile
+                 .set_index('subregion')
+                 .loc[layer_heights.columns]['relative_density']
+                 .to_numpy()
+                 )
             ret.loc[region][profile_name] = np.sum(w) / np.dot(p, w)
 
     return ret

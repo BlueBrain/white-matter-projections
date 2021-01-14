@@ -73,13 +73,13 @@ def test_MacroConnections():
     eq_(ipsi.loc['MOs']['ACAd'], 0.)
 
     layer_heights = {
-        'FRP':  {'l6': 50,  'l5': 200, 'l4': 300, 'l3': 50,  'l2': 400, 'l1': 500, },
-        'MOs':  {'l6': 300, 'l5': 700, 'l4': 800, 'l3': 300, 'l2': 900, 'l1': 1000, },
-        'ACAd': {'l6': 450, 'l5': 800, 'l4': 700, 'l3': 450, 'l2': 600, 'l1': 500, },
+        'FRP':  {'l6a': 50,  'l6b': 200, '5': 300, '4': 50,  'l23': 400, '1': 500, },
+        'MOs':  {'l6a': 300, 'l6b': 700, '5': 800, '4': 300, 'l23': 900, '1': 1000, },
+        'ACAd': {'l6a': 450, 'l6b': 800, '5': 700, '4': 450, 'l23': 600, '1': 500, },
     }
 
-    layer_heights = utils.region_layer_heights(layer_heights,
-                                               columns=('l1', 'l2', 'l3', 'l4', 'l5', 'l6', ))
+    layer_heights = utils.region_layer_heights(layer_heights)
+
     norm_layer_profiles = utils.normalize_layer_profiles(layer_heights, recipe.layer_profiles)
 
     ipsi = recipe.get_target_region_density(norm_layer_profiles, 'ipsi')

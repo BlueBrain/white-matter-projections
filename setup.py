@@ -18,7 +18,7 @@ setup(
     license='BBP-internal-confidential',
     install_requires=[
         'jinja2>=2.10',
-        'bluepy>=0.14.3',
+        'bluepy>=0.14.3,<2.0.0',
         'click>=6.0',
         'lazy>=1.0',
         'joblib>=0.13.1',
