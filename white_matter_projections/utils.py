@@ -130,9 +130,9 @@ class Config(object):
             with open(path) as fd:
                 layer_heights = json.load(fd)
         else:
-            layers = list(self.config.recipe.layer_profiles.subregion.unique())
+            layers = list(self.recipe.layer_profiles.subregion.unique())
             layer_heights = calculate_region_layer_heights(
-                self.atlas, self.region_map, self.regions, layers, self.config['layers_splits'])
+                self.atlas, self.region_map, self.regions, layers, self.config['layer_splits'])
             with open(path, 'w') as fd:
                 json.dump(layer_heights, fd)
 
@@ -202,11 +202,21 @@ def calculate_region_layer_heights(atlas, region_map, regions, layers, layer_spl
         atlas(voxcell.nexus.voxelbrain): atlas to be used for region lookup
         region_map(voxcell.RegionMap): hierarchy for region lookup
         regions(list): regions to have their height calculated
-        layers(list): the subregions of interest
-        layer_splits(dict): subregion name -> (new_name, factor)
+        layers(list): the subregions of interest; this is 'post-split'
+        layer_splits(dict): subregion name -> [(new_name, factor), ...]
 
     Note: the word 'layer' is used to follow the recipe/paper convention
     '''
+    # pylint: disable=too-many-locals
+    # set the layers to the pre-split ones
+    layers = set(layers)
+
+    for pre_split_layer, post_split_layers in layer_splits.items():
+        for post_split_layer, _ in post_split_layers:
+            if post_split_layer in layers:
+                layers.discard(post_split_layer)
+                layers.add(pre_split_layer)
+
     brain_regions = atlas.load_data('brain_regions')
 
     thicknesses = collections.defaultdict(dict)

@@ -263,13 +263,20 @@ def test_calculate_region_layer_heights():
     raw = np.zeros((5, 5, 5, 2))
     raw[:, :, :, 1] = 1.
     ph = voxcell.VoxelData(raw, np.ones(3), offset=np.zeros(3))
-    atlas.load_data = lambda name: brain_regions if name == 'brain_regions' else ph
-    regions = ['one']
+    def load_atlas(name):
+        if name == 'brain_regions':
+            return brain_regions
+        elif name == '[PH]1':
+            return ph
+        raise Exception('Unknown atlas: %s' % name)
+    atlas.load_data = load_atlas
+
+    regions = ['one', ]
     layers = ['1', ]
     ret = utils.calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits={})
     eq_(ret, {'one': {'1': 1.0,}})
 
+    layers = ['1a', '1b', ]
     layer_splits = {'1': [('1a', 0.25), ('1b', 0.75)]}
     ret = utils.calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits)
     eq_(ret, {'one': {'1a': 0.25, '1b': 0.75}})
-
