@@ -22,17 +22,23 @@ def _full_sample_worker_mock(min_xyzs, index_path, voxel_dimensions):
 
 
 def test__ensure_only_flatmap_segments():
-    flat_map = fake_flat_map()
+    config = Mock()
+    config.flat_map = fake_flat_map()
     columns = ['segment_x1', 'segment_y1', 'segment_z1',
                'segment_x2', 'segment_y2', 'segment_z2', ]
     segments = pd.DataFrame([[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, ],  # maps to 0, 0, 0 -> -1, -1
                              [1.0, 1.0, 1.0, 2.0, 2.0, 2.0, ],  # maps to 1, 1, 1 -> 1, 1
                              [2.0, 0.0, 1.0, 3.0, 1.0, 2.0, ],  # maps to 2, 0, 1 -> -1, -1
                              [2.0, 1.0, 2.0, 3.0, 2.0, 3.0, ],  # maps to 2, 1, 2 -> 2, 2
+
+                             [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, ],  # maps to 0, 0, 0 -> -1, -1
+                             [1.0, 1.0, 1.0, 2.0, 2.0, 2.0, ],  # maps to 1, 1, 1 -> 1, 1
+                             [2.0, 0.0, 1.0, 3.0, 1.0, 2.0, ],  # maps to 2, 0, 1 -> -1, -1
+                             [2.0, 1.0, 2.0, 3.0, 2.0, 3.0, ],  # maps to 2, 1, 2 -> 2, 2
                              ],
                             columns=columns)
-    ret = sampling._ensure_only_flatmap_segments(flat_map, segments)
-    eq_(len(ret), 2)
+    ret = sampling._ensure_only_flatmap_segments(config, segments)
+    eq_(len(ret), 4)
 
 
 def test__ensure_only_segments_from_region():

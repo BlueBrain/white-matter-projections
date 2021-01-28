@@ -32,7 +32,8 @@ class FlatMap(object):
         self.center_line_2d = center_line_2d
         self.center_line_3d = center_line_3d
 
-        self.flat_idx = (flat_map.raw[:, :, :, 0] >= 0) | (flat_map.raw[:, :, :, 1] >= 0)
+        self.flat_idx = np.reshape(self.mask_in_2d_flatmap(np.reshape(self.flat_map.raw, (-1, 2))),
+                                   self.flat_map.shape)
         self.shape = np.max(flat_map.raw[self.flat_idx], axis=0) + 1
 
     @classmethod
@@ -48,6 +49,24 @@ class FlatMap(object):
         region_map = voxcell.region_map.RegionMap.load_json(hierarchy_path)
 
         return cls(flat_map, brain_regions, region_map, center_line_2d, center_line_3d)
+
+    @staticmethod
+    def mask_in_2d_flatmap(uvs):
+        '''return a mask for all values of `uv` that are inside the 2d-flatmap
+
+        Args:
+            uvs(np.array [n x 2])): of float/int to test
+
+        Returns:
+            np.array(size=n): boolean if outside or not
+
+        Note: per doc/source/flatmap.rst:
+            The 2D canvas is only in the positive quadrant.  Thus, negative
+            values of either the x or y mean that the voxel does not have a
+            valid value.
+        '''
+        mask = (uvs[:, 0] >= 0) & (uvs[:, 1] >= 0)
+        return mask
 
     def make_flat_id_region_map(self, regions):
         '''find most popular *parent* region IDs for each flat_map value, based on path in voxels

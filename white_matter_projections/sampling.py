@@ -13,7 +13,7 @@ from joblib import Parallel, delayed
 from neurom import NeuriteType
 from projectionizer import synapses
 from projectionizer.utils import ErrorCloseToZero, normalize_probability
-from white_matter_projections import utils, mapping
+from white_matter_projections import utils, mapping, flat_mapping
 
 
 L = logging.getLogger(__name__)
@@ -27,20 +27,17 @@ SEGMENT_COLUMNS = sorted(['section_id', 'segment_id', 'segment_length', ] +
                          )
 
 
-def _ensure_only_flatmap_segments(flat_map, segments):
+def _ensure_only_flatmap_segments(config, segments):
     '''Make sure 3D locations map to sensible 2D flatmap locations'''
-    position_to_voxel = mapping.PositionToVoxel(flat_map.brain_regions)
-    voxel_to_flat = mapping.VoxelToFlat(flat_map.flat_map, flat_map.shape)
-
     xyzs = (segments[SEGMENT_START_COLS].to_numpy() + segments[SEGMENT_END_COLS].to_numpy()) / 2.
-    voxel_ijks, offsets = position_to_voxel(xyzs)
-    pos, _ = voxel_to_flat(voxel_ijks, offsets)
+    mapper = mapping.CommonMapper.load_default(config)
+    uvs = mapper.map_points_to_flat(xyzs)
+    inside_mask = flat_mapping.FlatMap.mask_in_2d_flatmap(uvs)
 
-    mask = (pos != (-1, -1)).all(axis=1)
-    segments = segments[mask]
+    segments = segments[inside_mask]
     L.debug('Removed %d of %d (%.2f%%) locations due to not having a flatmap location',
-            len(mask) - len(segments), len(mask),
-            100. * (len(mask) - len(segments)) / float(len(mask)))
+            len(inside_mask) - len(segments), len(inside_mask),
+            100. * (len(inside_mask) - len(segments)) / float(len(inside_mask)))
 
     return segments
 
@@ -158,7 +155,7 @@ def _full_sample_parallel(positions,
     if not _is_split_index(index_path, region, side):
         df = _ensure_only_segments_from_region(config, region, side, df)
 
-    df = _ensure_only_flatmap_segments(config.flat_map, df)
+    df = _ensure_only_flatmap_segments(config, df)
 
     return df
 
