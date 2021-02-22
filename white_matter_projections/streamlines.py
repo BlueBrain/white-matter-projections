@@ -446,7 +446,7 @@ def _read_streamlines_rows(path):
         for line in fd:
             line = line.split()
             assert int(line[0]) == (len(line) - 1) / 3, 'incorrect point count'
-            xyz = it.imap(float, line[1:])  # pylint: disable=no-member
+            xyz = map(float, line[1:])  # pylint: disable=no-member
             streamlines.append(zip(xyz, xyz, xyz))
     return streamlines
 

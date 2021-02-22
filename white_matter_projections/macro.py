@@ -281,8 +281,8 @@ class MacroConnections(object):
 
         ptypes_interaction_matrix = {}
         for k, v in self.ptypes_interaction_matrix.items():
-            ptypes_interaction_matrix[k] = {'index': tuple(v.index),
-                                            'values': tuple(v.values.ravel()),
+            ptypes_interaction_matrix[k] = {'index': v.index.to_list(),
+                                            'values': v.values.tolist(),
                                             }
 
         def convert_vertices(d):
@@ -290,7 +290,7 @@ class MacroConnections(object):
             ret = {}
             for k, v in d.items():
                 if k == 'vertices':
-                    ret[k] = tuple(v.ravel())
+                    ret[k] = list(v.tolist())
                 elif isinstance(v, dict):
                     ret[k] = convert_vertices(v)
                 else:
@@ -377,7 +377,7 @@ class MacroConnections(object):
         '''
         # pylint: disable=too-many-locals
         m = hashlib.sha256()
-        m.update(recipe_yaml)
+        m.update(recipe_yaml.encode('utf-8'))
         hexdigest = m.hexdigest()
 
         if cache_dir is not None:

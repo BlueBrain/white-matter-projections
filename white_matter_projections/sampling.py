@@ -373,7 +373,7 @@ def _mask_xyzs_by_compensation_worker(config_path, src_uvs_path, xyzs, sl, sigma
     return mask
 
 
-def _mask_xyzs_by_compensation(config_path, src_uvs_path, xyzs, sigma,
+def _mask_xyzs_by_compensation(xyzs, config_path, src_uvs_path, sigma,
                                n_jobs=-2,
                                chunk_size=10000):
     '''parallize find `xyzs` that are in `vertices`

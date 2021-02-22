@@ -192,7 +192,7 @@ def test_load_save():
         sl.save(tmp, metadata, streamlines)
         new_metadata, new_streamlines = sl.load(tmp)
         assert_frame_equal(metadata, new_metadata)
-        eq_(map(tuple, new_streamlines[0]), streamlines[0])
+        eq_(list(map(tuple, new_streamlines[0])), streamlines[0])
 
 
 def test_write_output():

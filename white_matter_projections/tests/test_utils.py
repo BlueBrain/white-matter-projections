@@ -1,5 +1,5 @@
 import os
-from bluepy.v2.circuit import Circuit
+from bluepy.circuit import Circuit
 from white_matter_projections import utils, macro, flat_mapping
 import numpy as np
 import pandas as pd
@@ -246,12 +246,12 @@ def test_normalize_layer_profiles():
                             columns=['name', 'subregion', 'relative_density']
         )
     ret = utils.normalize_layer_profiles(layer_heights, profiles)
-    expected = pd.DataFrame.from_dict({'profile_1': {'S1DZO': 1.180785, 'S1DZ': 1.180914},
-                                       'profile_2': {'S1DZO': 1.251485, 'S1DZ': 1.251290},
-                                       'profile_3': {'S1DZO': 1.000376, 'S1DZ': 1.000020},
-                                       'profile_4': {'S1DZO': 0.792819, 'S1DZ': 0.793501},
-                                       'profile_5': {'S1DZO': 0.813591, 'S1DZ': 0.814063},
-                                       'profile_6': {'S1DZO': 0.568273, 'S1DZ': 0.568739},
+    expected = pd.DataFrame.from_dict({'profile_1': {'S1DZ': 1.180914, 'S1DZO': 1.180785},
+                                       'profile_2': {'S1DZ': 1.251290, 'S1DZO': 1.251485},
+                                       'profile_3': {'S1DZ': 1.000020, 'S1DZO': 1.000376},
+                                       'profile_4': {'S1DZ': 0.793501, 'S1DZO': 0.792819},
+                                       'profile_5': {'S1DZ': 0.814063, 'S1DZO': 0.813591},
+                                       'profile_6': {'S1DZ': 0.568739, 'S1DZO': 0.568273},
                                        })
     expected.index.name = 'region'
     pd.testing.assert_frame_equal(ret, expected)

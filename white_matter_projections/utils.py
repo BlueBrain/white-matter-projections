@@ -56,7 +56,7 @@ class Config(object):
     @lazy
     def circuit(self):
         '''circuit referenced by config'''
-        from bluepy.v2.circuit import Circuit
+        from bluepy.circuit import Circuit
         return Circuit(self.config['circuit_config'])
 
     @lazy
@@ -124,7 +124,7 @@ class Config(object):
         '''calculate and cache layer heights from atlas to DataFrame'''
 
         m = hashlib.sha256()
-        m.update(self.config['atlas_url'])
+        m.update(self.config['atlas_url'].encode('utf-8'))
         hexdigest = m.hexdigest()
 
         path = os.path.join(self.cache_dir, 'region_layer_heights_%s.json' % hexdigest)
@@ -165,7 +165,7 @@ class Config(object):
     def get_cells(self, population_filter=None):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
         m = hashlib.sha256()
-        m.update(self.config['circuit_config'])
+        m.update(self.config['circuit_config'].encode('utf-8'))
         hexdigest = m.hexdigest()
 
         path = os.path.join(self.cache_dir, 'cells_%s.feather' % hexdigest)
@@ -359,9 +359,12 @@ def read_frame(path, columns=None):
     source = pyarrow.OSFile(path)
 
     if path.endswith('.feather'):
-        if columns is not None and 'index' not in columns:
-            columns.append('index')
-        df = feather.FeatherReader(source).read_pandas(columns)
+        df = feather.read_feather(source, columns=columns)
+        try:
+            df['index'] = feather.read_feather(source, columns=['index'])
+        except pyarrow.lib.ArrowInvalid as e:
+            assert str(e).startswith('Field named')
+
         if 'index' in df:
             df = df.set_index('index')
         return df

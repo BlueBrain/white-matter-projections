@@ -2,7 +2,7 @@ import math
 import os
 import numpy as np
 import pandas as pd
-from bluepy.v2.index import SegmentIndex
+from bluepy.index import SegmentIndex
 
 from nose.tools import ok_, eq_, assert_raises
 from white_matter_projections import sampling, utils as white_matter_utils
@@ -169,7 +169,7 @@ def test_load_all_samples():
 
         region_tgt = 'Fake'
         ret = sampling.load_all_samples(tmp, region_tgt)
-        eq_(ret.keys(), ['l1'])
+        eq_(list(ret.keys()), ['l1'])
         assert_frame_equal(ret['l1']['right'], df_right)
         assert_frame_equal(ret['l1']['left'], df_left, check_names=False)
 
@@ -199,20 +199,20 @@ def test__mask_xyzs_by_vertices_worker():
         utils.Config.return_value = config = Mock()
         config.flat_map = test_utils.fake_flat_map()
 
-        vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+        vertices = np.array(list(zip([0., 10., 0.], [0., 0., 10.])))
         xyzs = np.array([[1.1, 0.1, 0, ],
                          [2.3, 2.3, 2.3, ],
                          ])
         res = sampling._mask_xyzs_by_vertices_worker('config_path', vertices, xyzs, sl=slice(None))
         eq_([True, True], list(res))
 
-        vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
+        vertices = np.array(list(zip([0., 1., 0.], [0., 0., 1.])))
         xyzs = np.array([[1.1, 0.1, 0, ],
                          ])
         res = sampling._mask_xyzs_by_vertices_worker('config_path', vertices, xyzs, sl=slice(None))
         eq_([False, ], list(res))
 
-        vertices = np.array(zip([0., 2., 0.], [0., 0., 2.]))
+        vertices = np.array(list(zip([0., 2., 0.], [0., 0., 2.])))
         xyzs = np.array([[1.1, 0.1, 0, ],
                          ])
         res = sampling._mask_xyzs_by_vertices_worker('config_path', vertices, xyzs, sl=slice(None))
@@ -220,7 +220,7 @@ def test__mask_xyzs_by_vertices_worker():
 
 
 def test_mask_xyzs_by_vertices():
-    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+    vertices = np.array(list(zip([0., 10., 0.], [0., 0., 10.])))
     xyzs = np.array([[1.1, 0.1, 0, ],
                      [2.3, 2.3, 2.3, ],
                      ])
@@ -241,7 +241,7 @@ def test_calculate_constrained_volume():
         brain_regions = config.flat_map.brain_regions
         config_path = 'fake'
 
-        vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+        vertices = np.array(list(zip([0., 10., 0.], [0., 0., 10.])))
 
         region_id = 314159  # fake
         ret = sampling.calculate_constrained_volume(config_path, brain_regions, region_id, vertices)
@@ -251,7 +251,7 @@ def test_calculate_constrained_volume():
         ret = sampling.calculate_constrained_volume(config_path, brain_regions, region_id, vertices)
         eq_(ret, 10.)  # 10 voxels of 1 unit each
 
-        vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
+        vertices = np.array(list(zip([0., 1., 0.], [0., 0., 1.])))
         ret = sampling.calculate_constrained_volume(config_path, brain_regions, region_id, vertices)
         eq_(ret, 5.)  # removes 5, compared to above
 
@@ -317,7 +317,7 @@ def test__subsample_per_source():
             syn_locations.side_effect = _pick_candidate_synapse_locations_mock
             np.random.seed(37)
 
-            vertices = np.array(zip([0., 1., 0.], [0., 0., 1.]))
+            vertices = np.array(list(zip([0., 1., 0.], [0., 0., 1.])))
 
             densities = pd.DataFrame([['two', 2, 0.14],  # densities aren't the same, but when added (0.14 + 0.15) * 5. (volume)
                                       ['two', 2, 0.15]   # they are larger than 1
@@ -366,7 +366,7 @@ def test__pick_candidate_synapse_locations_by_function():
             ]
     segment_samples = pd.DataFrame(data, columns=columns)
 
-    mask_function = lambda(samples): [True, ] * len(samples)
+    mask_function = lambda samples: [True, ] * len(samples)
     ret = sampling._pick_candidate_synapse_locations_by_function(mask_function,
                                                                  segment_samples,
                                                                  syns_count=1,
@@ -375,7 +375,7 @@ def test__pick_candidate_synapse_locations_by_function():
     ok_(isinstance(ret, pd.DataFrame))
     eq_(len(ret), 1)
 
-    mask_function = lambda(samples): [False, ] * len(samples)
+    mask_function = lambda samples: [False, ] * len(samples)
     ret = sampling._pick_candidate_synapse_locations_by_function(mask_function,
                                                                  segment_samples,
                                                                  syns_count=1,
@@ -386,7 +386,7 @@ def test__pick_candidate_synapse_locations_by_function():
 
 def test__mask_xyzs_by_compensation():
     config_path = 'Mocked'
-    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+    vertices = np.array(list(zip([0., 10., 0.], [0., 0., 10.])))
     xyzs = np.array([[1.1, 0.1, 0, ],
                      [2.3, 2.3, 2.3, ],
                      ])

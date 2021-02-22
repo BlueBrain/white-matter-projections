@@ -184,7 +184,7 @@ def fake_allocations():
 
 
 def fake_projection_mapping():
-    vertices = np.array(zip([0., 10., 0.], [0., 0., 10.]))
+    vertices = np.array(list(zip([0., 10., 0.], [0., 0., 10.])))
 
     ret = {'source_population0': {'projection0': {'target_population': 'target00',
                                                   'variance': 1.,

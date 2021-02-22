@@ -129,7 +129,7 @@ def _make_numeric_groups(total_counts, overlap_counts):
         overlap_counts: original overlap_counts with names converted to numbers
     '''
     names = sorted(total_counts)
-    name_map = {k: v for k, v in zip(names, range(len(names)))}
+    name_map = dict(zip(names, range(len(names))))
     total_counts = [total_counts[k] for k in names]
     overlap_counts = {tuple(sorted(name_map[k] for k in key)): v
                       for key, v in overlap_counts.items()}
@@ -467,7 +467,7 @@ def allocate_projections(recipe, get_cells):
 
     Args:
         recipe(MacroConnections): recipe
-        cells(pandas.DataFrame): as returned by bluepy.v2.Circuit.cells.get()
+        cells(pandas.DataFrame): as returned by bluepy.Circuit.cells.get()
 
     Returns:
         dict of source_population -> dict projection_name -> np array of source gids

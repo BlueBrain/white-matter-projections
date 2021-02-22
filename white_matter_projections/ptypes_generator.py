@@ -122,7 +122,8 @@ def _create_full_binary_tree(innervation_probabilities, interaction_matrix):
     while True:
         nodes = list(innervation_probabilities_dict.keys())
         max_indices = utils.get_max_indices(interaction_matrix)
-        max_node_ids = [nodes[max_index] for max_index in max_indices]
+        max_node_ids = [nodes[max_index]  # pylint: disable=invalid-sequence-index
+                        for max_index in max_indices]
         maximum = interaction_matrix[max_indices]
         # Insert nodes
         for child_id in max_node_ids:
