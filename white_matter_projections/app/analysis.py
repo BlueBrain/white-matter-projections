@@ -6,6 +6,7 @@ import os
 
 import click
 import numpy as np
+import pandas as pd
 
 from white_matter_projections import utils
 from white_matter_projections.app.utils import print_color
@@ -70,7 +71,7 @@ def calculate_compensation(ctx, projection_name, side):
 @click.option('-n', '--name', 'projection_name')
 @click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
-def projection(ctx, projection_name, side):
+def source_locations(ctx, projection_name, side):
     '''plot all and used source locations for `projection_name` and `side`'''
     from white_matter_projections import display, micro
     config, output = ctx.obj['config'], ctx.obj['output']
@@ -152,52 +153,77 @@ def triangle_map(ctx, projection_name, side):
 @cmd.command()
 @click.option('-n', '--name', 'projection_name')
 @click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
+@click.option('--sort', type=bool, is_flag=True, default=False)
 @click.pass_context
-def assignment_validation(ctx, projection_name, side):
+def assignment_validation(ctx, projection_name, side, sort):
     '''Compare the achieved density post assignment to the desired density'''
-    from white_matter_projections import mapping, micro
-    config, output = ctx.obj['config'], ctx.obj['output']
+    from white_matter_projections import mapping, micro, region_densities
+    config = ctx.obj['config']
 
-    tgt_base_system = mapping.base_system_from_projection(
-        config,
-        config.recipe.get_projection(projection_name).source_population,
-        projection_name)
-    flat_map = config.flat_map(tgt_base_system)  # pylint: disable=redefined-outer-name
+    projection = config.recipe.get_projection(projection_name)
+    flatmap = config.flat_map(
+        mapping.base_system_from_projection(config,
+                                            projection.source_population,
+                                            projection_name))
 
-    with open(flat_map.hierarchy_path, 'r', encoding='utf-8') as fd:
-        df = utils.hierarchy_2_df(json.load(fd))
+    densities = (region_densities
+                 .SamplingRegionDensities(recipe=config.recipe, cache_dir=config.cache_dir)
+                 .get_sample_densities_by_target_population(config.atlas,
+                                                            projection.target_population)
+                 )
 
-    new = utils.read_frame(os.path.join(output,
-                                        micro.ASSIGNMENT_PATH,
-                                        side,
-                                        '%s.feather' % projection_name))
-    new['region_id'] = flat_map.brain_regions.lookup(new[utils.XYZ].to_numpy())
-    new = new.join(df.acronym, on='region_id')
-
-    densities = config.recipe.calculate_densities(
-        utils.normalize_layer_profiles(config.region_layer_heights,
-                                       config.recipe.layer_profiles))
+    syns = os.path.join(ctx.obj['output'],
+                        micro.ASSIGNMENT_PATH,
+                        side,
+                        '%s.feather' % projection_name)
+    syns = utils.read_frame(syns)
+    syns['region_id'] = flatmap.brain_regions.lookup(syns[utils.XYZ].to_numpy())
+    with open(flatmap.hierarchy_path, 'r', encoding='utf8') as fd:
+        syns = syns.join(utils.hierarchy_2_df(json.load(fd)).acronym, on='region_id')
 
     region_format = config.region_subregion_translation.region_subregion_format
     densities = densities.query('projection_name == @projection_name')
-    densities = densities[['region_tgt', 'subregion_tgt', 'density']].drop_duplicates().copy()
+    densities = densities[['region', 'subregion', 'density']].drop_duplicates().copy()
     densities['acronym'] = densities.apply(
-        lambda r: region_format.format(region=r.region_tgt, subregion=r.subregion_tgt).lstrip('@'),
+        lambda r: region_format.format(region=r.region, subregion=r.subregion).lstrip('@'),
         axis=1)
 
     volumes = utils.get_acronym_volumes(list(densities.acronym.unique()),
-                                        flat_map.brain_regions,
-                                        flat_map.region_map,
-                                        flat_map.center_line_3d,
+                                        flatmap.brain_regions,
+                                        flatmap.region_map,
+                                        flatmap.center_line_3d,
                                         side)
 
-    volumes = (new.acronym.value_counts() / volumes.volume)
-    volumes.name = 'desired_density'
+    volumes = (syns.acronym.value_counts() / volumes.volume)
+    volumes.name = 'achieved_density'
     densities = densities.join(volumes, on='acronym')
-    densities['absolute_difference'] = np.abs(
-        (densities.density - densities.desired_density) / densities.desired_density)
+    densities['difference'] = densities.achieved_density - densities.density
+    densities['percentage_difference'] = densities.difference / densities.density
+    densities['abs_percentage_difference'] = np.abs(densities.percentage_difference)
+
+    if sort:
+        densities.sort_values('abs_percentage_difference', ascending=False, inplace=True)
 
     print_color('Densities')
-    print(densities
-          .sort_values('absolute_difference', ascending=False)
-          .to_string(max_rows=None))
+    print(densities.to_string(max_rows=None))
+
+
+@cmd.command()
+@click.pass_context
+def density_weights(ctx):
+    '''calculate the density weights'''
+    from white_matter_projections import region_densities
+
+    config = ctx.obj['config']
+
+    srd = region_densities.SamplingRegionDensities(recipe=config.recipe,
+                                                   cache_dir=config.cache_dir,
+                                                   use_volume=True)
+
+    for target_population in config.recipe.projections.target_population.unique():
+        print(target_population)
+        df = srd.get_sample_densities_by_target_population(config.atlas, target_population)
+        df = df[['projection_name', 'density']]
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+            print(df)
+        print()

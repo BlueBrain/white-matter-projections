@@ -126,7 +126,7 @@ class MacroConnections(object):
                     if wij * pj > TOLERANCE:
                         L.warning(msg, source_population, j, pj, wij, pj * wij)
 
-        # TODO:  need to check that projections.target_layer_profile is in self.layers
+        _check_layer_profiles(self.projections, self.populations, self.layer_profiles)
 
     def _get_projections(self, hemisphere=None):
         '''Get the *used* projections; a projection is used if it is referenced by a ptype'''
@@ -204,12 +204,11 @@ class MacroConnections(object):
                )
 
         ret['density'] = ret.value * ret.target_density * ret.relative_density
-
         return ret
 
     def get_population(self, population_name):
-        '''return population for `population_name`'''
-        population = self.populations.set_index('population').loc[population_name]
+        '''return pd.DataFrame with population for `population_name`'''
+        population = self.populations.set_index('population').loc[[population_name]]
         return population
 
     def get_projection(self, projection_name):
@@ -438,11 +437,11 @@ def _parse_populations(populations, region_map, region_subregion_translation):
                     subregion = region_map.get(id_, 'acronym')
 
                     if subregion != region:
-                        hier_region, subregion = (region_subregion_translation
-                                                  .extract_region_subregion_from_acronym(
-                                                      subregion)
+                        hier_region, subregion = (region_subregion_translation.
+                                                  extract_region_subregion_from_acronym(subregion)
                                                   )
-                    data.append((id_, pop['name'], region, hier_region, subregion, pop_filter))
+
+                    data.append((id_, pop['name'], hier_region, subregion, pop_filter))
             else:
                 for subregion in atlas_region['subregions']:
                     subregion = region_subregion_translation.translate_subregion(subregion)
@@ -455,9 +454,9 @@ def _parse_populations(populations, region_map, region_subregion_translation):
                         removed.append((region, subregion))
                         continue
 
-                    data.append((id_, pop['name'], region, region, subregion, pop_filter))
+                    data.append((id_, pop['name'], region, subregion, pop_filter))
 
-    columns = ['id', 'population', 'region', 'hier_region', 'subregion', 'population_filter']
+    columns = ['id', 'population', 'region', 'subregion', 'population_filter']
     populations = pd.DataFrame(data, columns=columns)
 
     pop_cat = CategoricalDtype(populations.population.unique())
@@ -468,8 +467,13 @@ def _parse_populations(populations, region_map, region_subregion_translation):
     if removed:
         L.warning('%s are missing from atlas', sorted(removed))
 
-    assert len(populations) == len(populations[['hier_region', 'subregion', 'population_filter']
-                                               ].drop_duplicates())
+    # need to deduplicate on population name, since the tuple
+    # ('region', 'subregion', 'population_filter') isn't unique
+    assert len(populations) == len(populations.
+                                   drop_duplicates(subset=['population',
+                                                           'region',
+                                                           'subregion',
+                                                           'population_filter']))
 
     return pop_cat, populations
 
@@ -480,7 +484,7 @@ def _read_mapping_coordinate_system(flat_map_names, node):
         f'Currently only handle {flat_map_names}, but {node["base_system"]} is not one of them'
 
     base_system = node['base_system']
-    vertices = np.array(zip(node['x'], node['y'],))
+    vertices = np.array(list(zip(node['x'], node['y'],)))
 
     return base_system, vertices
 
@@ -632,12 +636,14 @@ def _parse_layer_profiles(layer_profiles, region_subregion_translation):
     '''
     data = []
     for profile in layer_profiles:
-        for densities in profile['relative_densities']:
+        for layer_group, densities in enumerate(profile['relative_densities']):
             for subregion in densities['layers']:
                 subregion = region_subregion_translation.translate_subregion(subregion)
-                data.append((profile['name'], subregion, densities['value']))
+                data.append((profile['name'], subregion, layer_group, densities['value']))
 
-    layer_profiles = pd.DataFrame(data, columns=['name', 'subregion', 'relative_density'])
+    layer_profiles = pd.DataFrame(data,
+                                  columns=['name', 'subregion', 'layer_group', 'relative_density'])
+
     return layer_profiles
 
 
@@ -670,3 +676,18 @@ def _parse_synapse_types(synapse_types):
     # TODO:  Validate recipe while reading
 
     return synapse_types
+
+
+def _check_layer_profiles(projections, populations, layer_profiles):
+    '''each layer profile names a list of layers, ensure they are available in the population'''
+    df = projections[['target_population', 'target_layer_profile_name']].drop_duplicates()
+    for row in df.itertuples():
+        needed_subregions = set(layer_profiles[layer_profiles.name == row.target_layer_profile_name]
+                                .subregion)
+
+        available_subregions = set(populations[populations.population == row.target_population]
+                                   .subregion)
+        missing_subregions = needed_subregions - available_subregions
+        if missing_subregions:
+            L.warning('Missing regions: %s for (%s, %s)',
+                      missing_subregions, row.target_population, row.target_layer_profile_name)

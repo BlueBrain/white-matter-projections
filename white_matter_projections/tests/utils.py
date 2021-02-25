@@ -3,6 +3,8 @@ import shutil
 import tempfile
 import yaml
 
+from mock import Mock
+
 import numpy as np
 import voxcell
 from contextlib import contextmanager
@@ -14,8 +16,21 @@ DATADIR = os.path.join(BASEDIR, 'data')
 with open(os.path.join(DATADIR, 'recipe.yaml')) as fd:
     RECIPE_TXT = fd.read()
 RECIPE = yaml.load(RECIPE_TXT, Loader=yaml.FullLoader)
-SUBREGION_TRANSLATION = {'l%d' % i: str(i) for i in range(1, 7)}
+
+FLAT_MAP_NAMES = ['Allen Dorsal Flatmap', ]
+
+SUBREGION_TRANSLATION = {'l1': '1',
+                         'l2': '2',
+                         'l3': '3',
+                         'l23': '23',
+                         'l4': '4',
+                         'l5': '5',
+                         'l6': '6',
+                         'l6a': '6a',
+                         'l6b': '6b',
+                         }
 REGION_SUBREGION_FORMAT = '@{region}(?:_l|;|){subregion}'
+
 REGION_SUBREGION_SEPARATION_FORMAT = '(?P<region>[^\d]+)(?:_l|;)(?P<subregion>\d+)'
 
 POP_CAT = CategoricalDtype(categories=['POP1_ALL_LAYERS',
@@ -196,6 +211,81 @@ def get_region_subregion_translation():
        subregion_translation=SUBREGION_TRANSLATION)
 
 
+def recipe_brain_regions():
+    raw = np.zeros((5, 5, 5), dtype=np.int)
+    raw[0, 0, 0] = 836  # "ECT;1"
+    raw[0, 0, 1] = 426  # "ECT;2"
+    raw[0, 0, 2] = 427  # "ECT;3"
+    raw[0, 0, 3] = 428  # "ECT;4"
+    raw[0, 0, 4] = 988  # "ECT;5"
+    raw[0, 1, 0] = 977  # "ECT;6"
+
+    raw[1, 0, 0] = 68  # "FRP_l1"
+    raw[1, 0, 1] = 666  # "FRP_l2"
+    raw[1, 0, 2] = 667  # "FRP_l3"
+    raw[1, 0, 3] = 526322264  # "FRP_l4"
+    raw[1, 0, 4] = 526157192  # "FRP_l5"
+    raw[1, 1, 0] = 526157196  # "FRP_l6"
+
+    raw[2, 0, 0] = 935  # "ACAd1"
+    raw[2, 0, 1] = 20211  # "ACAd2"
+    raw[2, 0, 2] = 30211  # "ACAd3"
+    raw[2, 0, 3] = 30212  # "ACAd4"
+    raw[2, 0, 4] = 1015  # "ACAd5"
+    raw[2, 1, 0] = 20919  # "ACAd6"
+
+    raw[3, 0, 0] = 656  # "MOs1"
+    raw[3, 0, 1] = 20962  # "MOs2"
+    raw[3, 0, 2] = 30962  # "MOs3"
+    raw[3, 0, 3] = 30969  # "MOs4"
+    raw[3, 0, 4] = 767  # "MOs5"
+    raw[3, 1, 0:2] = 21021  # "MOs6"
+
+    raw[4, 0, 0] = 981  # "SSp-bfd1"
+    raw[4, 0, 1] = 20201  # "SSp-bfd2"
+    raw[4, 0, 2] = 30201  # "SSp-bfd3"
+    raw[4, 0, 3] = 1047  # "SSp-bfd4"
+    raw[4, 0, 4] = 1070  # "SSp-bfd5"
+    raw[4, 1, 0] = 1038  # "SSp-bfd6a"
+    raw[4, 1, 1] = 1062  # "SSp-bfd6b"
+    raw[4, 1, 2] = 480149202  # "VISrll"
+    raw[4, 1, 3] = 480149206  # "VISrll1"
+    raw[4, 1, 4] = 480169210  # "VISrll2"
+    raw[4, 2, 0] = 480179210  # "VISrll3"
+    raw[4, 2, 1] = 480149214  # "VISrll4"
+    raw[4, 2, 2] = 480149218  # "VISrll5"
+    raw[4, 2, 3] = 480149222  # "VISrll6a"
+    raw[4, 2, 4] = 480149226  # "VISrll6b"
+
+    raw[4, 3, 0] = 189  # "RH"
+
+    brain_regions = voxcell.VoxelData(raw, np.ones(3), offset=np.zeros(3))
+    return brain_regions
+
+
+def make_mock_atlas(brain_regions, region_map, have_ph=False, **kwargs):
+    atlas = Mock()
+
+    def load_atlas(name):
+        if name == 'brain_regions':
+            return brain_regions
+        elif have_ph and name.startswith('[PH]'):
+            raw = np.zeros((5, 5, 5, 2))
+            raw[:, :, :, 1] = 1.
+            ph = voxcell.VoxelData(raw, np.ones(3), offset=np.zeros(3))
+            return ph
+        elif name in kwargs:
+            return kwargs[name]
+
+        raise Exception('Unknown atlas: %s' % name)
+
+    atlas.load_data = load_atlas
+    atlas.region_map = region_map
+
+    return atlas
+
+
+
 @contextmanager
 def tempdir(prefix):
     temp_dir = tempfile.mkdtemp(prefix=prefix)
@@ -203,10 +293,6 @@ def tempdir(prefix):
         yield temp_dir
     finally:
         shutil.rmtree(temp_dir)
-
-
-def gte_(lhs, rhs):
-    assert lhs <= rhs, 'lhs: %s not <= rhs: %s' % (lhs, rhs)
 
 
 def fake_brain_regions():

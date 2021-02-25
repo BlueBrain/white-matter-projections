@@ -115,19 +115,17 @@ def sample_all(ctx, target_population, side):
 @cmd.command()
 @click.option('-p', '--population', 'target_population', required=True)
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
-@click.option('--use-compensation', is_flag=True, default=False,
-              help='Perform compensation of density')
 @click.option('--rank', type=click.INT,
               help='Only do rows modulo rank')
 @click.option('--max-rank', type=click.INT,
               help='Only do rows modulo rank')
 @click.pass_context
-def subsample(ctx, target_population, side, use_compensation, rank, max_rank):
+def subsample(ctx, target_population, side, rank, max_rank):
     '''create candidate synapses from full set of segments created by sample_all'''
     config, output = ctx.obj['config'], ctx.obj['output']
 
     sampling.subsample_per_target(
-        output, config, target_population, side, use_compensation, rank, max_rank)
+        output, config, target_population, side, rank, max_rank)
 
 
 @cmd.command()

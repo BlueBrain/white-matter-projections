@@ -42,12 +42,3 @@ colors: # from allen paper
     lightblue: [0x90, 0xbf, 0xf9]
     blue: [0x52, 0x52, 0xa9]
     purple: [0x7c, 0x42, 0x9b]
-
-
-region_layer_heights:
-    #prefrontal
-    FRP: {l6: 100, l5: 100, l4: 100, l3: 100, l2: 100, l1: 100, }
-    MOs: {l6: 300, l5: 700, l4: 800, l3: 900, l2: 300, l1: 1000, }
-    ACAd: {l6: 300, l5: 700, l4: 800, l3: 900, l2: 300, l1: 1000, }
-    #:temporal
-    ECT: {'l1': 158.4196, 'l2': 25.648783, 'l3': 244.81703, 'l4': 2.9887738, 'l5': 293.00555, 'l6': 256.90335}

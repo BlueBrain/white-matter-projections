@@ -98,7 +98,8 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
 
         df.columns = map(str, df.columns)
 
-        df = df[df['Section.NEURITE_TYPE'] != NeuriteType.axon].copy()
+        df = df[  # pylint: disable=unsubscriptable-object
+            df['Section.NEURITE_TYPE'] != NeuriteType.axon].copy()
 
         if df is None or len(df) == 0:
             continue
@@ -461,7 +462,6 @@ def _mask_xyzs_by_compensation(
     masks = p(worker(config_path, src_uvs_path, xyzs, sl, base_system, sigma)
               for sl in slices)
     mask = np.hstack(masks)
-    L.debug('mask_xyzs_by_compensation done: with %s candidates', len(xyzs))
     return mask
 
 
@@ -576,21 +576,23 @@ def _pick_candidate_synapse_locations_by_function(mask_function,
                                                   min_to_pick=25000,
                                                   times=20,
                                                   seed=0):
-    '''Repeatedly call `mask_function` to pick synpases, until syns_count is met'''
+    '''Repeatedly call `mask_function` to pick synapses, until syns_count is met'''
     ret = []
-    to_pick = syns_count
-    seed_sequences = np.random.SeedSequence(seed)
-    for i, seed_sequence in zip(range(times), seed_sequences.spawn(times)):
-        L.debug('_pick_candidate_synapse_locations_by_function try %d, to go %d', i, to_pick)
+    fraction_more = 1.0
+    for i, seed_sequence in zip(range(times), np.random.SeedSequence(seed).spawn(times)):
+        L.debug('_pick_candidate_synapse_locations_by_function try %d, to go %d, frac_more: %f',
+                i, syns_count, fraction_more)
         L.debug('    start add random: %d', len(segment_samples))
         syns = _add_random_position_and_offset(segment_samples, seed_sequence)
         L.debug('    end random')
 
         # when we are getting close to the count we want picked, oversample to make it faster
         # and thus we don't need to traverse the loop many times just to get the last few
-        L.debug('    start picking %d', max(min_to_pick, to_pick))
+        L.debug('    start picking %d', max(min_to_pick, int(syns_count * fraction_more)))
         rng = np.random.default_rng(seed_sequence.spawn(1)[0])
-        picked = _pick_syns(syns, count=max(min_to_pick, to_pick), rng=rng)
+        picked = _pick_syns(syns,
+                            count=max(min_to_pick, int(syns_count * fraction_more)),
+                            rng=rng)
 
         if picked is None:
             return None
@@ -603,12 +605,16 @@ def _pick_candidate_synapse_locations_by_function(mask_function,
 
         syns = syns[mask]
 
-        if len(syns) > to_pick:
-            syns = syns.sample(to_pick, random_state=rng.bit_generator)
+        if len(syns) > syns_count:
+            syns = syns.sample(syns_count, random_state=rng.bit_generator)
+
+        nz_mask = np.count_nonzero(mask)
+        if nz_mask:
+            fraction_more = (len(mask) * 1.1) / nz_mask
 
         ret.append(syns)
-        to_pick -= len(syns)
-        if to_pick <= 0:
+        syns_count -= len(syns)
+        if syns_count <= 0:
             break
 
     ret = pd.concat(ret, ignore_index=True, sort=False)
@@ -621,6 +627,7 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
     projection_name,
     region_tgt,
     densities,
+    use_compensation,
     hemisphere,
     side,
     segment_samples,
@@ -635,7 +642,8 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
         target_vertices(array): vertices in flat_space to constrain the samples in the target
         flat_space
         projection_name(str): name of projection
-        densities(DataFrame): with columns 'subregion_tgt', 'id_tgt', 'density'
+        densities(DataFrame): with columns 'subregion', 'id', 'density'
+        use_compensation(bool): whether to use compensation
         hemisphere(str): either 'ipsi' or 'contra'
         side(str): either 'left' or 'right'
         segment_samples(dict of 'left'/'right'): full sample of regions's segments
@@ -671,15 +679,19 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
             mirrored_vertices,
             config.flat_map(tgt_base_system).center_line_2d)
 
-    densities = densities[['subregion_tgt', 'id_tgt', 'density']].drop_duplicates()
-    groupby = densities.groupby(['subregion_tgt', 'id_tgt']).density.sum().iteritems()
+    if np.any(densities[['subregion', 'id', 'density']].duplicated()):
+        L.warning('There are duplicate densities, this is somewhat unexpected')
+
+    densities = densities[['subregion', 'id', 'density']].drop_duplicates().copy()
+    groupby = densities.groupby(['subregion', 'id']).density.sum().iteritems()
 
     all_syns, zero_volume = [], []
     for i, ((layer, id_tgt), density) in enumerate(groupby):
         volume = calculate_constrained_volume(
             config.config_path, brain_regions, id_tgt, mirrored_vertices, tgt_base_system)
 
-        L.debug('  %s[%s %s]: %s', projection_name, layer, side, volume)
+        L.debug('  %s[%s %s]: volume: %s density: %s count: %s',
+                projection_name, layer, side, volume, density, int(volume * density))
 
         if volume <= 0.1:
             zero_volume.append((projection_name, side, layer, ))
@@ -694,7 +706,7 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
             mirrored_vertices,
             tgt_base_system,
             syns_count=int(volume * density),
-            use_compensation=config.config.get('compensation', False),
+            use_compensation=use_compensation,
             seed=seed + i)
 
         if syns is not None:
@@ -737,7 +749,6 @@ def subsample_per_target(output,
                          config,
                          target_population,
                          side,
-                         use_compensation,
                          rank,
                          max_rank=0):
     '''Create feathers files in `output` for projections targeting `target_population`
@@ -747,35 +758,35 @@ def subsample_per_target(output,
         config(utils.Config): config
         target_population(str):
         side(str): 'left' or 'right'
-        use_compensation(bool): whether to use compensation
         rank(int): which worker number this is
         max_rank(int): total number of workers
     '''
     # pylint: disable=too-many-locals
     L.debug('Sub-sampling for target: %s', target_population)
-    target_population = target_population  # trick pylint since used in pandas query
-    densities = (config.recipe.
-                 calculate_densities(utils.normalize_layer_profiles(config.region_layer_heights,
-                                                                    config.recipe.layer_profiles))
-                 .query('target_population == @target_population')
-                 )
+    from white_matter_projections import region_densities
+    srd = region_densities.SamplingRegionDensities(config.recipe,
+                                                   cache_dir=config.cache_dir,
+                                                   use_volume=True)
+    densities = srd.get_sample_densities_by_target_population(config.atlas, target_population)
 
     if not len(densities):
-        L.warning('Densities are empty, did you select a target?')
+        L.warning('Densities are empty, did you select a target population?')
         return
+
+    use_compensation = config.config.get('compensation', False)
 
     if use_compensation:
         compensation = get_compensation_path(output, side)
         L.info('Using compensation from: %s', compensation)
         compensation = pd.read_csv(compensation, index_col='projection_name')
 
-    regions = list(densities.region_tgt.unique())
+    regions = list(densities.region.unique())
 
-    for region_tgt in regions:
-        segment_samples = load_all_samples(output, region_tgt)
+    for region in regions:
+        segment_samples = load_all_samples(output, region)
 
         gb = list(densities
-                  .query('region_tgt == @region_tgt')
+                  .query('region == @region')
                   .groupby(['source_population', 'projection_name', 'hemisphere', ]))
 
         for i, (keys, density) in enumerate(gb):
@@ -786,8 +797,7 @@ def subsample_per_target(output,
             tgt_vertices = config.recipe.projections_mapping[
                 source_population][projection_name]['vertices']
 
-            updated_density = density.copy()
-
+            updated_density = density.copy().reset_index()
             if use_compensation:
                 comp = compensation.loc[projection_name]
                 comp = comp.total / float(comp.within_cutoff)
@@ -797,11 +807,19 @@ def subsample_per_target(output,
             seed = utils.generate_seed(source_population, projection_name, hemisphere)
 
             L.debug('Subsampling for %s[%s][%s] (%s of %s), seed: %s',
-                    projection_name, side, region_tgt, i + 1, len(gb), seed)
-            _subsample_per_source(config, tgt_vertices,
-                                  projection_name, region_tgt,
-                                  updated_density, hemisphere, side,
-                                  segment_samples, output, seed)
+                    projection_name, side, region, i + 1, len(gb), seed)
+
+            _subsample_per_source(config=config,
+                                  target_vertices=tgt_vertices,
+                                  projection_name=projection_name,
+                                  region_tgt=region,
+                                  densities=updated_density,
+                                  use_compensation=use_compensation,
+                                  hemisphere=hemisphere,
+                                  side=side,
+                                  segment_samples=segment_samples,
+                                  output=output,
+                                  seed=seed)
 
 
 def calculate_compensation(config, projection_name, side, sample_size=10000):
@@ -818,10 +836,9 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
     '''
     from white_matter_projections import micro
 
-    source_population, target_population, hemisphere = \
-        (
-            config.recipe.get_projection(projection_name)
-        )[['source_population', 'target_population', 'hemisphere']]
+    source_population, target_population, hemisphere = (
+        config.recipe.get_projection(projection_name)
+    )[['source_population', 'target_population', 'hemisphere']]
 
     tgt_gids = micro.get_gids_by_population(
         config.recipe.populations, config.get_cells, target_population)
@@ -836,10 +853,10 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
     )
 
     assert side in utils.SIDES, f'unknown: {side}'
-    if side == 'left':
-        tgt_locations = left_cells
-    else:
+    if side == 'right':
         tgt_locations = right_cells
+    else:
+        tgt_locations = left_cells
 
     rng = np.random.default_rng(
         seed=config.seed + utils.generate_seed(source_population, projection_name, hemisphere))
@@ -865,6 +882,16 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
 
 def compute_compensation_parallel(config, projection_names, side):
     '''compute compensation in a parallelized manor'''
+    from white_matter_projections import micro
+    # preseed cache: make sure that there isn't a race on cells cache creation
+    seen = set()
+    for projection_name in projection_names:
+        target_population = config.recipe.get_projection(projection_name)['target_population']
+        if target_population in seen:
+            continue
+        micro.get_gids_by_population(config.recipe.populations, config.get_cells, target_population)
+        seen.add(target_population)
+
     worker = delayed(calculate_compensation)
     p = Parallel(n_jobs=-2,
                  verbose=150,

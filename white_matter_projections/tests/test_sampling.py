@@ -362,7 +362,7 @@ def test__subsample_per_source():
                }
     projection_name = 'projection0'
     side = 'left'
-    region_tgt = 'region_tgt'
+    region_tgt = 'region'
     hemisphere = 'contra'
 
     def _pick_candidate_synapse_locations_mock(*args, **kwargs):
@@ -386,11 +386,19 @@ def test__subsample_per_source():
 
             densities = pd.DataFrame([['two', 2, 0.14],  # densities aren't the same, but when added (0.14 + 0.15) * 5. (volume)
                                       ['two', 2, 0.15]   # they are larger than 1
-                                      ], columns=['subregion_tgt', 'id_tgt', 'density'])
+                                      ], columns=['subregion', 'id', 'density'])
 
-            syn_count = sampling._subsample_per_source(config, vertices,
-                                                       projection_name, region_tgt, densities, hemisphere, side,
-                                                       samples, output, seed=0)
+            syn_count = sampling._subsample_per_source(config=config,
+                                                       target_vertices=vertices,
+                                                       projection_name=projection_name,
+                                                       region_tgt=region_tgt,
+                                                       densities=densities,
+                                                       use_compensation=False,
+                                                       hemisphere=hemisphere,
+                                                       side=side,
+                                                       segment_samples=samples,
+                                                       output=output,
+                                                       seed=0)
             eq_(syn_count, 1)  # int((0.14 + 0.15) * 5.) == 1
 
             ok_(os.path.exists(output_path))
@@ -398,20 +406,36 @@ def test__subsample_per_source():
             eq_(len(res), 1)  # int((0.14 + 0.15) * 5.) == 1
 
             #already sampled, file exists
-            syn_count = sampling._subsample_per_source(config, vertices,
-                                                       projection_name, region_tgt, densities, hemisphere, side,
-                                                       samples, output, seed=0)
+            syn_count = sampling._subsample_per_source(config=config,
+                                                       target_vertices=vertices,
+                                                       projection_name=projection_name,
+                                                       region_tgt=region_tgt,
+                                                       densities=densities,
+                                                       use_compensation=False,
+                                                       hemisphere=hemisphere,
+                                                       side=side,
+                                                       segment_samples=samples,
+                                                       output=output,
+                                                       seed=0)
             eq_(syn_count, 0)
 
             # duplicated densities
             densities = pd.DataFrame([['two', 2, 1.],  # duplicates
                                       ['two', 2, 1.]   # duplicates
-                                      ], columns=['subregion_tgt', 'id_tgt', 'density'])
+                                      ], columns=['subregion', 'id', 'density'])
 
             os.unlink(output_path)
-            syn_count = sampling._subsample_per_source(config, vertices,
-                                                       projection_name, region_tgt, densities, hemisphere, side,
-                                                       samples, output, seed=0)
+            syn_count = sampling._subsample_per_source(config=config,
+                                                       target_vertices=vertices,
+                                                       projection_name=projection_name,
+                                                       region_tgt=region_tgt,
+                                                       densities=densities,
+                                                       use_compensation=False,
+                                                       hemisphere=hemisphere,
+                                                       side=side,
+                                                       segment_samples=samples,
+                                                       output=output,
+                                                       seed=0)
             eq_(syn_count, 5)  # int(1. * 5.), where 5 is the volume
 
             ok_(os.path.exists(output_path))

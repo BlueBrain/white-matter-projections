@@ -154,6 +154,8 @@ def test__greedy_gids_allocation_from_counts():
     def overlap(g0, g1):
         return set(ret[g0]) & set(ret[g1])
 
+    #def gte_(lhs, rhs):
+    #    assert lhs <= rhs, 'lhs: %s not <= rhs: %s' % (lhs, rhs)
     # Note: the current implementation isn't great, read comment in _fill_groups
     # picking a different seed may make tests pass, but it's nice to have this fail...
     #gte_(overlap_counts[('proj0', 'proj1')], len(overlap('proj0', 'proj1')))

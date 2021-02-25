@@ -1,7 +1,7 @@
 import pandas as pd
 from nose.tools import ok_, eq_
 from white_matter_projections import macro, utils
-from utils import (POP_CAT, RECIPE, RECIPE_TXT, REGION_MAP,
+from utils import (POP_CAT, RECIPE, RECIPE_TXT, REGION_MAP, FLAT_MAP_NAMES,
                    REGION_SUBREGION_FORMAT,
                    REGION_SUBREGION_SEPARATION_FORMAT,
                    SUBREGION_TRANSLATION, tempdir,
@@ -10,8 +10,6 @@ from utils import (POP_CAT, RECIPE, RECIPE_TXT, REGION_MAP,
 from numpy.testing import assert_allclose, assert_raises
 from pandas.testing import assert_frame_equal
 
-
-FLAT_MAP_NAMES = ['Allen Dorsal Flatmap', ]
 
 
 def test__parse_populations():
@@ -74,14 +72,14 @@ def test__parse_populations():
                                                     REGION_MAP,
                                                     region_subregion_translation)
     eq_(len(populations), 14)
-    eq_(set(populations.hier_region), {'VISrll', 'SSp-bfd'})
+    eq_(set(populations.region), {'VISrll', 'SSp-bfd'})
 
 
 def test__parse_projections():
     projections, projections_mapping = macro._parse_projections(RECIPE['projections'],
                                                                 POP_CAT,
                                                                 {'Allen Dorsal Flatmap'})
-    eq_(len(projections.query('hemisphere == "ipsi"')), 3)
+    eq_(len(projections.query('hemisphere == "ipsi"')), 4)
     eq_(len(projections.query('target_layer_profile_name == "profile_1"')), 1)
     eq_(len(projections.query('target_layer_profile_name == "profile_2"')), 4)
 
@@ -95,21 +93,15 @@ def test__parse_ptypes():
 
 
 def test__parse_layer_profiles():
-    subregion_translation = {'l1': '1',
-                             'l23': '23',
-                             'l4': '4',
-                             'l5': '5',
-                             # note: 6a/b missing, not replaced
-                             }
+    subregion_translation = {'l1': '1', 'l2': '2', 'l3': '3', 'l4': '4', 'l5': '5', 'l6': '6', }
     region_subregion_translation = utils.RegionSubregionTranslation(
        subregion_translation=subregion_translation)
 
     layer_profiles = macro._parse_layer_profiles(RECIPE['layer_profiles'],
                                                  region_subregion_translation)
-    eq_(len(layer_profiles.name.unique()), 2)
+    eq_(len(layer_profiles.name.unique()), 3)
     eq_(len(layer_profiles.subregion.unique()), 6)
-    eq_(sorted(layer_profiles.subregion.unique()),
-        ['1', '23', '4', '5', 'l6a', 'l6b'])
+    eq_(set(layer_profiles.subregion), {'1', '2', '3', '4', '5', '6'})
 
 
 def test_MacroConnections_get_connection_density_map():
@@ -222,6 +214,29 @@ def test_MacroConnections_serialization():
         #ptypes_interaction_matrix
         assert_frame_equal(recipe.layer_profiles, recipe_cached.layer_profiles)
         eq_(recipe.synapse_types, recipe_cached.synapse_types)
+
+
+def test__check_layer_profiles():
+    region_subregion_translation = get_region_subregion_translation()
+    recipe = macro.MacroConnections.load_recipe(
+        RECIPE_TXT,
+        REGION_MAP,
+        cache_dir=None,
+        region_subregion_translation=region_subregion_translation,
+        flat_map_names=FLAT_MAP_NAMES
+    )
+    projections = recipe.projections.copy()
+    populations = recipe.populations.copy()
+    layer_profiles = recipe.layer_profiles.copy()
+    macro._check_layer_profiles(projections, populations, layer_profiles)
+
+    # layer_profile is subset of population definition
+    layer_profiles = layer_profiles.query('not (name == "profile_1" and subregion == "3")')
+    macro._check_layer_profiles(projections, populations, layer_profiles)
+
+    # remove a *needed* layer from population
+    populations = populations.query('not (population == "POP2_ALL_LAYERS" and subregion == "4")')
+    #assert_raises(AssertionError, macro._check_layer_profiles, projections, populations, layer_profiles)
 
 #TODO:
 #_get_projections

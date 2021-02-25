@@ -144,6 +144,32 @@ projections:
             - name: type_1
               fraction: 1.0
 
+    - source: POP1_ALL_LAYERS # ECT
+      mapping_coordinate_system:
+          base_system: Allen Dorsal Flatmap
+          x: [1., 2., 3.]
+          y: [4., 5., 6.]
+      targets:
+        - projection_name: LAYER_PROFILE_SUBSET
+          source_filters: []
+          hemisphere: ipsi
+          population: SUB_POP4_L23 # MOS
+          density: 0.05
+          presynaptic_mapping:
+              mapping_variance: 1
+              mapping_coordinate_system:
+                  base_system: Allen Dorsal Flatmap
+                  x: [7., 8., 9.]
+                  y: [10., 11., 12.]
+          connection_mapping:
+              type: type_1
+          target_layer_profiles:
+            - name: profile_3
+              fraction: 1.0
+          synapse_types:
+            - name: type_1
+              fraction: 1.0
+
 p-types:
     - population: SUB_POP4_L23 # FRP
       fractions:
@@ -171,27 +197,36 @@ layer_profiles:
       relative_densities:
         - layers: ['l1']
           value: 2.639020
-        - layers: ['l23']
+        - layers: ['l2', 'l3']
           value: 1.655240
         - layers: ['l4']
           value: 0.394960
         - layers: ['l5']
           value: 0.351513
-        - layers: ['l6a', 'l6b']
+        - layers: ['l6']
           value: 0.351513
 
     - name: profile_2
       relative_densities:
         - layers: ['l1']
           value: 2.795373
-        - layers: ['l23']
+        - layers: ['l2', 'l3']
           value: 0.425331
         - layers: ['l4']
           value: 0.323954
         - layers: ['l5']
           value: 1.190083
-        - layers: ['l6a', 'l6b']
+        - layers: ['l6']
           value: 0.440938
+
+    - name: profile_3
+      relative_densities:
+        - layers: ['1']
+          value: 1.
+        - layers: ['2']
+          value: 2.
+        - layers: ['3']
+          value: 3.
 
 synapse_types:
     - name: type_1

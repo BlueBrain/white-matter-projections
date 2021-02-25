@@ -170,9 +170,9 @@ class FlatmapPainter:
         projection = self.config.recipe.get_projection(projection_name)
         mirrored = utils.is_mirror(side, projection.hemisphere)
 
-        # XXX try w/ one that has multiple source pops!
         colors = it.cycle((('red', 'green',), ('blue', 'yellow',)))
         source_populations = self.config.recipe.get_population(projection.source_population)
+
         for (src_color, dst_color), source_population in zip(colors,
                                                              source_populations.itertuples()):
             src_id, source_population = source_population.id, source_population.Index
@@ -205,7 +205,6 @@ class FlatmapPainter:
             tgt_ax.scatter(
                 uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=1, color=dst_color)
 
-            # XXX: needed? if the multiple source pops exist???
             self.draw_mapping_triangles(mirrored, source_population, projection_name)
 
     def plot_compensation(self, projection_name, side, size=10):

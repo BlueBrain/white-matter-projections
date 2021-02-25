@@ -221,14 +221,6 @@ Mapping of modules to colour names, used for drawing flatmaps.
         SSp-n: blue
         SSp-m: purple
 
-layer_splits
-~~~~~~~~~~~~
-If a layer needs to be split for `layer_profiles:relative_densities`, for instance because it does not exist in the atlas, the proportions for the split can be encoded here.
-
-.. code-block:: yaml
-
-    layer_splits: {'1': [('1a', 0.25), ('1b', 0.75)]}
-
 only_segments_from_region
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -74,9 +74,7 @@ def repl(ctx, config):  # pylint: disable=unused-argument
     # pylint: disable=import-error,unused-variable
     import IPython
     config = utils.Config(config)
-    norm_layer_profiles = utils.normalize_layer_profiles(config.region_layer_heights,
-                                                         config.recipe.layer_profiles)
-    IPython.embed(banner1='You have access to: config, norm_layer_profiles')
+    IPython.embed(banner1='You have access to: config')
 
 
 app.add_command(name='aibs', cmd=aibs.cmd)

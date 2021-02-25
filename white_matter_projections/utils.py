@@ -2,7 +2,6 @@
 import collections
 import hashlib
 import itertools as it
-import json
 import logging
 import os
 import re
@@ -150,27 +149,6 @@ class Config(object):
             ret = self.atlas.load_region_map()
         return ret
 
-    @property
-    def region_layer_heights(self):
-        '''calculate and cache layer heights from atlas to DataFrame'''
-
-        m = hashlib.sha256()
-        m.update(self.config['atlas_url'].encode('utf-8'))
-        hexdigest = m.hexdigest()
-
-        path = os.path.join(self.cache_dir, 'region_layer_heights_%s.json' % hexdigest)
-        if os.path.exists(path):
-            with open(path, encoding='utf-8') as fd:
-                layer_heights = json.load(fd)
-        else:
-            layers = list(self.recipe.layer_profiles.subregion.unique())
-            layer_heights = calculate_region_layer_heights(
-                self.atlas, self.region_map, self.regions, layers, self.config['layer_splits'])
-            with open(path, 'w', encoding='utf-8') as fd:
-                json.dump(layer_heights, fd)
-
-        return region_layer_heights(layer_heights)
-
     def flat_map(self, base_system):
         '''conversion from voxel space to 2d flat space'''
         from white_matter_projections import flat_mapping
@@ -295,51 +273,6 @@ class RegionSubregionTranslation(object):
         return next(iter(id_))
 
 
-def calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits):
-    '''find region layer heights for layers
-
-    Args:
-        atlas(voxcell.nexus.voxelbrain): atlas to be used for region lookup
-        region_map(voxcell.RegionMap): hierarchy for region lookup
-        regions(list): regions to have their height calculated
-        layers(list): the subregions of interest; this is 'post-split'
-        layer_splits(dict): subregion name -> [(new_name, factor), ...]
-
-    Note: the word 'layer' is used to follow the recipe/paper convention
-    '''
-    # pylint: disable=too-many-locals
-    # set the layers to the pre-split ones
-    layers = set(layers)
-
-    for pre_split_layer, post_split_layers in layer_splits.items():
-        for post_split_layer, _ in post_split_layers:
-            if post_split_layer in layers:
-                layers.discard(post_split_layer)
-                layers.add(pre_split_layer)
-
-    brain_regions = atlas.load_data('brain_regions')
-
-    thicknesses = collections.defaultdict(dict)
-    for region in regions:
-        ids = region_map.find(region, 'acronym', 'id', with_descendants=True)
-        mask = np.isin(brain_regions.raw, list(ids))
-        for layer in layers:
-            ph = atlas.load_data('[PH]%s' % layer).raw[mask]
-            thickness = np.mean(ph[:, 1] - ph[:, 0])
-            if layer in layer_splits:
-                for name, fraction in layer_splits[layer]:
-                    thicknesses[region][name] = thickness * fraction
-            else:
-                thicknesses[region][layer] = thickness
-
-    return dict(thicknesses)
-
-
-def region_layer_heights(layer_heights):
-    '''convert layer heights dictionary to pandas DataFrame'''
-    return pd.DataFrame.from_dict(layer_heights, orient='index')
-
-
 def perform_module_grouping(df, module_grouping):
     '''group regions in df, a DataFrame into a multiindex based on `module_grouping`
 
@@ -362,36 +295,9 @@ def perform_module_grouping(df, module_grouping):
     return ret
 
 
-def normalize_layer_profiles(layer_heights, profiles):
-    '''calculate 'x' as described in white-matter-projections whitepaper
-
-    Args:
-        layer_heights: mean height of all layers in all regions
-        profiles: profiles for each region, as defined in recipe
-
-    As per Michael Reiman in NCX-121:
-        Show overall density in each layer of the target region. Method: let w be the vector of
-        layer widths of the target region, p the layer profile of a projection:
-           x  = sum(w) / sum(w * p)
-    '''
-    ret = pd.DataFrame(index=layer_heights.index, columns=profiles.name.unique(), dtype=np.float64)
-    ret.index.name = 'region'
-
-    for profile_name, profile in profiles.groupby('name'):
-        for region in layer_heights.index:
-            w = layer_heights.loc[region].to_numpy()
-            p = (profile
-                 .set_index('subregion')
-                 .loc[layer_heights.columns]['relative_density']
-                 .to_numpy()
-                 )
-            ret.loc[region][profile_name] = np.sum(w) / np.dot(p, w)
-
-    return ret
-
-
 def ensure_path(path):
     '''make sure path exists'''
+    path = str(path)
     if not os.path.exists(path):
         try:
             os.makedirs(path)
@@ -460,7 +366,9 @@ def in_2dtriangle(vertices, points):
 
     def _in_triangle(v0, v1, v2, p):
         '''check if p is in triangle defined by vertices v0, v1, v2'''
-        # XXX: this probably doesn't short circuit, so might be excess computation?
+        # TODO: this probably doesn't short circuit, so might be excess computation?
+        # to reduce computation, we could do it iteratively, and only do a subset each time
+        # of the values that pass the `>= 0.` test, but this would require more bookkeeping
         return ((det(v1[None, :], v2[None, :], p) >= 0.) &
                 (det(v2[None, :], v0[None, :], p) >= 0.) &
                 (det(v0[None, :], v1[None, :], p) >= 0.))
@@ -536,19 +444,22 @@ def hierarchy_2_df(content):
     return ret.set_index('id')
 
 
-def get_acronym_volumes(acronyms, brain_regions, region_map, midline, side):
+def get_acronym_volumes(acronyms, brain_regions, region_map, center_line_3d, side):
     ''' get the volume that is occupied by `acronyms` in the brain_regions
 
     Returns:
         pd.DataFrame with index `acronyms` with values for `volume`
     '''
     assert side in SIDES, f'unknown: {side}'
-    raw = brain_regions.raw
-    midline_idx = brain_regions.positions_to_indices([[0., 0., float(midline)]])[0][Z]
-    if side == 'left':
-        raw = raw[:, :, :midline_idx]
-    else:
+
+    raw = brain_regions.raw.copy()
+    midline_idx = brain_regions.positions_to_indices([[0., 0., float(center_line_3d)]])
+    midline_idx = midline_idx[0][Z]
+
+    if side == 'right' and brain_regions.voxel_dimensions[Z] > 0.:
         raw = raw[:, :, midline_idx:]
+    else:
+        raw = raw[:, :, :midline_idx]
 
     ret = []
     for acronym in acronyms:

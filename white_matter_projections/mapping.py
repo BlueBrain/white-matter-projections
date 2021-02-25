@@ -158,7 +158,6 @@ class BarycentricCoordinates(object):
         Returns:
             np.array(Nx3): 'weights' (ie lambda_{1,2,3}) for the points
         '''
-        # XXX: np.linalg.solve might be safer, but it's slower - check
         diff = points - self.vertices[2, :]
         res = np.einsum('ij,kj->ik', diff, self.inv)
         return np.hstack((res, (1.0 - res.sum(axis=1))[:, None]))
