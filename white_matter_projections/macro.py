@@ -20,15 +20,15 @@ patterns of white-matter connectivity without saying which cells are connected
 to which - this is the job the microconnectivity.
 '''
 from collections import defaultdict
-import itertools as it
+import functools
 import hashlib
+import itertools as it
 import json
 import logging
-import os
-import functools
 import operator
-import yaml
+import os
 
+import yaml
 import numpy as np
 import pandas as pd
 from pandas.api.types import CategoricalDtype
@@ -364,18 +364,19 @@ class MacroConnections(object):
         return ret
 
     @classmethod
-    def load_recipe(cls, recipe_yaml, region_map, cache_dir=None,
-                    subregion_translation=None,
-                    region_subregion_format='{region}_{subregion}'):
+    def load_recipe(cls,
+                    recipe_yaml,
+                    region_map,
+                    cache_dir,
+                    region_subregion_translation):
         '''load population/projection/p-type recipe
 
         Args:
             recipe_yaml(str): the recipe following format, in yaml
             region_map(voxcell.RegionMap): hierarchy to verify population acronyms against
             cache_dir(str): location to save cached data
-            subregion_translation(dict): subregion alias -> subregion in atlas
-            region_subregion_format(str): format string describing the region/subregion ->
-            acronym conversion
+            region_subregion_translation(RegionSubregionTranslation): helper to
+            deal with atlas compatibility
 
         Returns:
             instance of MacroConnections
@@ -396,16 +397,13 @@ class MacroConnections(object):
 
         recipe = yaml.load(recipe_yaml, Loader=yaml.FullLoader)
 
-        if subregion_translation is None:
-            subregion_translation = {}
-
         pop_cat, populations = _parse_populations(recipe['populations'],
                                                   region_map,
-                                                  subregion_translation,
-                                                  region_subregion_format)
+                                                  region_subregion_translation)
         projections, projections_mapping = _parse_projections(recipe['projections'], pop_cat)
         ptypes, ptypes_interaction_matrix = _parse_ptypes(recipe['p-types'], pop_cat)
-        layer_profiles = _parse_layer_profiles(recipe['layer_profiles'], subregion_translation)
+        layer_profiles = _parse_layer_profiles(recipe['layer_profiles'],
+                                               region_subregion_translation)
 
         synapse_types = _parse_synapse_types(recipe['synapse_types'])
 
@@ -431,14 +429,14 @@ class MacroConnections(object):
     __str__ = __repr__
 
 
-def _parse_populations(populations, region_map, subregion_translation, region_subregion_format):
+def _parse_populations(populations, region_map, region_subregion_translation):
     '''parse_populations
 
-    populations(dict): as loaded from yaml file
-    region_map(voxcell.RegionMap): hierarchy to verify population acronyms against
-    subregion_translation(dict): subregion alias -> subregion in atlas
-    region_subregion_format(str): format string describing the region/subregion ->
-    acronym conversion
+    Args:
+        populations(dict): as loaded from yaml file
+        region_map(voxcell.RegionMap): hierarchy to verify population acronyms against
+        region_subregion_translation(RegionSubregionTranslation): helper to
+        deal with atlas compatibility
 
     Returns:
         tuple of:
@@ -452,6 +450,7 @@ def _parse_populations(populations, region_map, subregion_translation, region_su
                 population_filter: Category of 'Empty'/EXC/intratelencephalic or
                 'pyramidal tract'
     '''
+    # pylint: disable=too-many-locals,too-many-branches
     data, removed = [], []
     for pop in populations:
         pop_filter = 'Empty'
@@ -470,18 +469,44 @@ def _parse_populations(populations, region_map, subregion_translation, region_su
 
         for atlas_region in atlas_regions:
             region = atlas_region['name']
-            for subregion in atlas_region['subregions']:
-                subregion = subregion_translation.get(subregion, subregion)
 
-                id_ = utils.region_subregion_to_id(
-                    region_map, region, subregion, region_subregion_format)
-                if id_ <= 0:
-                    removed.append((region, subregion))
+            if 'subregions' not in atlas_region:
+                # add all subregions
+                region = hier_region = region_subregion_translation.translate_subregion(region)
+                subregions = region_map.find(region, 'acronym', with_descendants=True)
+
+                if not subregions:
+                    L.warning('region %s is missing from atlas', region)
+                    removed.append((region, None))
                     continue
 
-                data.append((id_, pop['name'], region, subregion, pop_filter))
+                for id_ in subregions:
+                    if not region_map.is_leaf_id(id_):
+                        continue
 
-    columns = ['id', 'population', 'region', 'subregion', 'population_filter']
+                    subregion = region_map.get(id_, 'acronym')
+
+                    if subregion != region:
+                        hier_region, subregion = (region_subregion_translation
+                                                  .extract_region_subregion_from_acronym(
+                                                      subregion)
+                                                  )
+                    data.append((id_, pop['name'], region, hier_region, subregion, pop_filter))
+            else:
+                for subregion in atlas_region['subregions']:
+                    subregion = region_subregion_translation.translate_subregion(subregion)
+
+                    id_ = region_subregion_translation.region_subregion_to_id(
+                        region_map,
+                        region,
+                        subregion)
+                    if id_ <= 0:
+                        removed.append((region, subregion))
+                        continue
+
+                    data.append((id_, pop['name'], region, region, subregion, pop_filter))
+
+    columns = ['id', 'population', 'region', 'hier_region', 'subregion', 'population_filter']
     populations = pd.DataFrame(data, columns=columns)
 
     pop_cat = CategoricalDtype(populations.population.unique())
@@ -491,6 +516,9 @@ def _parse_populations(populations, region_map, subregion_translation, region_su
 
     if removed:
         L.warning('%s are missing from atlas', sorted(removed))
+
+    assert len(populations) == len(populations[['hier_region', 'subregion', 'population_filter']
+                                               ].drop_duplicates())
 
     return pop_cat, populations
 
@@ -631,7 +659,7 @@ def _parse_ptypes(ptypes, pop_cat):
     return ptypes, interaction_matrices
 
 
-def _parse_layer_profiles(layer_profiles, subregion_translation):
+def _parse_layer_profiles(layer_profiles, region_subregion_translation):
     '''parse_layer_profiles
 
     Returns:
@@ -641,7 +669,7 @@ def _parse_layer_profiles(layer_profiles, subregion_translation):
     for profile in layer_profiles:
         for densities in profile['relative_densities']:
             for subregion in densities['layers']:
-                subregion = subregion_translation.get(subregion, subregion)
+                subregion = region_subregion_translation.translate_subregion(subregion)
                 data.append((profile['name'], subregion, densities['value']))
 
     layer_profiles = pd.DataFrame(data, columns=['name', 'subregion', 'relative_density'])

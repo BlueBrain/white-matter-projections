@@ -107,30 +107,33 @@ List of regions that are ignored, and thus shouldn't throw errors if they exist 
                       ORBl4, ORBm4, ORBvl4, PERI4, PL4, RSPagl4, RSPv4,
                       ]
 
-region_subregion_format
-~~~~~~~~~~~~~~~~~~~~~~~
 
-Regex used to convert from recipe region and subregion names, to the ones contained in the Atlas hierarchy.
-A subregion is generally the name of the layers.
+
+region_subregion_translation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To adapt/keep compatible recipes to various hierarchies; a series of translation and regex based extraction keys are available:
+
+* region_subregion_format: Regex used to convert from recipe region and subregion names, to the ones contained in the Atlas hierarchy.
+  Note the use of the regex matching in `Voxcell`, ex; the starting `@`
+  A subregion is generally the name of the layers.
+* region_subregion_extract_format: python style regex to extract the region and subregion from an acronym
+* subregion_translation: Dictionary lookup to convert the subregion names to those used for the lookup within the atlas.
+
+.. code-block:: yaml
+
+    region_subregion_format: '@{region}{subregion}'
+    region_subregion_separation_format: '(?P<region>.*)(?P<subregion>\d+)'
+    subregion_translation: {l1: '1', l2: '2', l3: '3', l4: '4', l5: '5', l6: '6', }
+
+Or:
 
 .. code-block:: yaml
 
     region_subregion_format: '@{region};L{subregion}'
+    region_subregion_separation_format: '(?P<region>.*);L(?P<region>\d+))'
 
-subregion_translation
-~~~~~~~~~~~~~~~~~~~~~
 
-Dictionary lookup to convert the subregion names to those used for the lookup within the atlas.
-
-.. code-block:: yaml
-
-    subregion_translation:
-       l1: '1'
-       l2: '2'
-       l3: '3'
-       l4: '4'
-       l5: '5'
-       l6: '6'
 
 populations_filters
 ~~~~~~~~~~~~~~~~~~~

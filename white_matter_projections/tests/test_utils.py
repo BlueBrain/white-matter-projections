@@ -91,25 +91,6 @@ def test_perform_module_grouping():
     eq_(ret.loc['Group0', 'Region0']['Group0', 'Region0'], 32)
 
 
-def test_get_region_layer_to_id():
-    ret = utils.get_region_layer_to_id(test_utils.REGION_MAP,
-                                       'ECT',
-                                       [2, 3, 4],
-                                       '{region};{subregion}'
-                                       )
-    eq_(ret, {2: 426, 3: 427, 4: 428})
-
-
-
-def test_region_subregion_to_id():
-    eq_(utils.region_subregion_to_id(test_utils.REGION_MAP, 'FA', 'KE', '{region}_{subregion}'),
-        -1)
-    eq_(utils.region_subregion_to_id(test_utils.REGION_MAP, 'FRP', '1', '{region}_l{subregion}'),
-        68)
-    eq_(utils.region_subregion_to_id(test_utils.REGION_MAP, 'ECT', '1', '{region};{subregion}'),
-        836)
-
-
 def test_mirror_vertices_y():
     vertices = np.array([(0, 100.), (1, 100.), (0., 101)])
     center_line = 0.
@@ -294,4 +275,35 @@ def test_get_acronym_volumes():
     eq_(ret.loc['two'].volume, 10.)
     eq_(ret.loc['twenty'].volume, 4.)
     eq_(ret.loc['thirty'].volume, 4.)
+
+
+class TestRegionSubregionTranslation(object):
+    def __init__(self):
+        pass
+
+    def test_translate_subregion(self):
+        ''' '''
+        rst = utils.RegionSubregionTranslation(region_subregion_separation_format='(?P<region>.*)(?P<subregion>\d+)')
+        eq_(('MOs', '1'), rst.extract_region_subregion_from_acronym('MOs1'))
+
+        rst = utils.RegionSubregionTranslation(region_subregion_separation_format=test_utils.REGION_SUBREGION_SEPARATION_FORMAT)
+        eq_(('MOs', '1'), rst.extract_region_subregion_from_acronym('MOs;1'))
+        eq_(('MOs', '1'), rst.extract_region_subregion_from_acronym('MOs_l1'))
+
+
+    def test_get_region_layer_to_id(self):
+        rst = utils.RegionSubregionTranslation(region_subregion_format='{region};{subregion}')
+        ret = rst.get_region_layer_to_id(test_utils.REGION_MAP, 'ECT', [2, 3, 4])
+        eq_(ret, {2: 426, 3: 427, 4: 428})
+
+    def test_region_subregion_to_id(self):
+        rst = utils.RegionSubregionTranslation(region_subregion_format='{region}_{subregion}')
+        eq_(rst.region_subregion_to_id(test_utils.REGION_MAP, 'FA', 'KE'), -1)
+
+        rst = utils.RegionSubregionTranslation(region_subregion_format='{region}_l{subregion}')
+        eq_(rst.region_subregion_to_id(test_utils.REGION_MAP, 'FRP', '1', ), 68)
+
+        rst = utils.RegionSubregionTranslation(region_subregion_format='{region};{subregion}')
+        eq_(rst.region_subregion_to_id(test_utils.REGION_MAP, 'ECT', '1'), 836)
+
 

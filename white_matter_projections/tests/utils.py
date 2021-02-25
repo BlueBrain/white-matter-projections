@@ -16,6 +16,7 @@ with open(os.path.join(DATADIR, 'recipe.yaml')) as fd:
 RECIPE = yaml.load(RECIPE_TXT, Loader=yaml.FullLoader)
 SUBREGION_TRANSLATION = {'l%d' % i: str(i) for i in range(1, 7)}
 REGION_SUBREGION_FORMAT = '@{region}(?:_l|;|){subregion}'
+REGION_SUBREGION_SEPARATION_FORMAT = '(?P<region>[^\d]+)(?:_l|;)(?P<subregion>\d+)'
 
 POP_CAT = CategoricalDtype(categories=['POP1_ALL_LAYERS',
                                        'POP2_ALL_LAYERS',
@@ -71,7 +72,112 @@ HIER_DICT = {"id": 65535,
                       {"name": "Secondary motor area, layer 4", "id": 30969, "acronym": "MOs4"},
                       {"name": "Secondary motor area, layer 5", "id": 767, "acronym": "MOs5"},
                       {"name": "Secondary motor area, layer 6", "id": 21021, "acronym": "MOs6"}
-                  ]}
+                  ]},
+
+                  {"name": "Rhomboid nucleus",  # childless region
+                   "id": 189,
+                   "acronym": "RH",
+                   "children": [],
+                   },
+
+                  {"name": "Primary somatosensory area, barrel field",  # has layers and has an inner region (VISrll)
+                   "id": 329,
+                   "acronym": "SSp-bfd",
+                   "children": [
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 1",
+                     "children": [],
+                     "id": 981,
+                     "acronym": "SSp-bfd1",
+                    },
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 2",
+                     "children": [],
+                     "id": 20201,
+                     "acronym": "SSp-bfd2",
+                    },
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 3",
+                     "acronym": "SSp-bfd3",
+                     "children": [],
+                     "id": 30201,
+                    },
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 4",
+                     "children": [],
+                     "id": 1047,
+                     "acronym": "SSp-bfd4",
+                    },
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 5",
+                     "children": [],
+                     "id": 1070,
+                     "acronym": "SSp-bfd5",
+                    },
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 6a",
+                     "children": [],
+                     "id": 1038,
+                     "acronym": "SSp-bfd6a",
+                    },
+                    {
+                     "name": "Primary somatosensory area, barrel field, layer 6b",
+                     "children": [],
+                     "id": 1062,
+                     "acronym": "SSp-bfd6b",
+                    },
+                    {
+                     "name": "Rostrolateral lateral visual area",
+                     "id": 480149202,
+                     "acronym": "VISrll",
+                     "children": [
+                      {
+                       "name": "Rostrolateral lateral visual area, layer 1",
+                       "children": [],
+                       "id": 480149206,
+                       "acronym": "VISrll1",
+                      },
+                      {
+                       "name": "Rostrolateral lateral visual area, layer 2",
+                       "children": [],
+                       "id": 480169210,
+                       "acronym": "VISrll2",
+                      },
+                      {
+                       "name": "Rostrolateral lateral visual area, layer 3",
+                       "acronym": "VISrll3",
+                       "children": [],
+                       "id": 480179210,
+                      },
+                      {
+                       "name": "Rostrolateral lateral visual area, layer 4",
+                       "children": [],
+                       "id": 480149214,
+                       "acronym": "VISrll4",
+                      },
+                      {
+                       "name": "Rostrolateral lateral visual area,layer 5",
+                       "children": [],
+                       "id": 480149218,
+                       "acronym": "VISrll5",
+                      },
+                      {
+                       "name": "Rostrolateral lateral visual area, layer 6a",
+                       "children": [],
+                       "id": 480149222,
+                       "acronym": "VISrll6a",
+                      },
+                      {
+                       "name": "Rostrolateral lateral visual area, layer 6b",
+                       "children": [],
+                       "id": 480149226,
+                       "acronym": "VISrll6b",
+                      }
+                     ],
+                    }
+                   ],
+                  },
+
 ]}
 REGION_MAP = voxcell.RegionMap.from_dict(HIER_DICT)
 
@@ -80,6 +186,14 @@ def get_config():
     from white_matter_projections import utils
     config_path = os.path.join(DATADIR, 'config.yaml')
     return utils.Config(config_path)
+
+
+def get_region_subregion_translation():
+    from white_matter_projections import utils
+    return utils.RegionSubregionTranslation(
+       region_subregion_format=REGION_SUBREGION_FORMAT,
+       region_subregion_separation_format=REGION_SUBREGION_SEPARATION_FORMAT,
+       subregion_translation=SUBREGION_TRANSLATION)
 
 
 @contextmanager

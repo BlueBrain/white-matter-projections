@@ -160,10 +160,11 @@ def test__greedy_gids_allocation_from_counts():
 
 
 def test_get_gids_by_population():
-    pop_cat, populations = macro._parse_populations(utils.RECIPE['populations'],
-                                              utils.REGION_MAP,
-                                              utils.SUBREGION_TRANSLATION,
-                                              utils.REGION_SUBREGION_FORMAT)
+    pop_cat, populations = macro._parse_populations(
+        utils.RECIPE['populations'],
+        utils.REGION_MAP,
+        region_subregion_translation=utils.get_region_subregion_translation()
+    )
     def cells(_):
         return pd.DataFrame({'layer': [1, 1, 2, 3, ],
                              'region': ['ECT', 'ECT', 'FRP', 'ECT', ],

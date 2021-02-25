@@ -5,6 +5,7 @@ import itertools as it
 import json
 import logging
 import os
+import re
 
 from lazy import lazy
 import numpy as np
@@ -80,9 +81,24 @@ class Config(object):
             recipe,
             self.region_map,
             cache_dir=self.cache_dir,
-            subregion_translation=self.subregion_translation,
-            region_subregion_format=self.region_subregion_format)
+            region_subregion_translation=self.region_subregion_translation,
+        )
         return recipe
+
+    @lazy
+    def region_subregion_translation(self):
+        '''get atlas compatibility object'''
+        translation = self.config.get('region_subregion_translation', {})
+        region_subregion_format = translation.get('region_subregion_format',
+                                                  '{region}_{subregion}')
+        region_subregion_separation_format = translation.get('region_subregion_separation_format',
+                                                             '')
+        subregion_translation = translation.get('subregion_translation', {})
+
+        return RegionSubregionTranslation(
+            region_subregion_format,
+            region_subregion_separation_format,
+            subregion_translation)
 
     @lazy
     def atlas(self):
@@ -152,16 +168,6 @@ class Config(object):
                                              config['center_line_3d'])
         return flat_map
 
-    @lazy
-    def subregion_translation(self):
-        '''returns a dict that maps subregion names from recipe to ones in hierarchy'''
-        return self.config.get('subregion_translation', {})
-
-    @lazy
-    def region_subregion_format(self):
-        '''format string describing the region/subregion -> acronym conversion'''
-        return self.config.get('region_subregion_format', '{region}_{subregion}')
-
     def get_cells(self, population_filter=None):
         '''Get cells in circuit with the mtype in `projecting_mtypes` unless `include_all`'''
         m = hashlib.sha256()
@@ -195,6 +201,83 @@ class Config(object):
             else:
                 raise Exception('Cannot find path: %s' % path)
         return path
+
+
+class RegionSubregionTranslation(object):
+    '''adapt recipes to various hierarchies '''
+    def __init__(self,
+                 region_subregion_format='{region}_{subregion}',
+                 region_subregion_separation_format=None,
+                 subregion_translation=None):
+        '''
+        Args:
+            region_subregion_format(str): format string describing the region/subregion ->
+            acronym conversion
+            region_subregion_separation_format(str):
+            subregion_translation(dict): subregion alias -> subregion in atlas
+        '''
+        if region_subregion_format:
+            if 'region' not in region_subregion_format:
+                raise ValueError(
+                    f'subregion_translation must contain "region": {region_subregion_format}')
+
+        if subregion_translation is None:
+            subregion_translation = {}
+
+        self.region_subregion_format = region_subregion_format
+        self.region_subregion_separation_format = region_subregion_separation_format
+        self.subregion_translation = subregion_translation
+
+    def extract_region_subregion_from_acronym(self, acronym):
+        '''use the config to extract the region/subregion from an acronym
+
+        Note: config key name is `region_subregion_separation_format`
+        '''
+        match = re.match(self.region_subregion_separation_format, acronym)
+
+        assert match, f'Could not find {self.region_subregion_separation_format} in {acronym}'
+
+        region = str(match['region'])
+        subregion = str(match['subregion'])
+
+        return region, subregion
+
+    def translate_subregion(self, subregion):
+        '''use the config `subregion_translation` to translate subregion name'''
+        return self.subregion_translation.get(subregion, subregion)
+
+    def get_region_layer_to_id(self, region_map, region, layers):
+        '''map `region` name and `layers` to ids based on `region_map`
+
+        an ID of -1 means it was not found
+        '''
+        return {layer: self.region_subregion_to_id(region_map, region, layer)
+                for layer in layers}
+
+    def region_subregion_to_id(self, region_map, region, subregion):
+        '''Populate ids for acronyms
+
+        Args:
+            region_map(voxcell.RegionMap): hierarchy to verify population region against
+            region(str): region to lookup
+            subregion(str/num): subregion
+
+        Returns:
+            tuple of array of ids corresponding to rows in df and a dataframe w/ the removed rows
+        '''
+        acronym = self.region_subregion_format.format(region=region, subregion=subregion)
+        id_ = region_map.find(acronym, 'acronym', with_descendants=True)
+
+        if len(id_) == 0:
+            L.warning('Missing region %s, subregion: %s: (%s)',
+                      region, subregion, acronym)
+            return -1
+        elif len(id_) > 1:
+            L.warning('Too many ids for region %s, subregion: %s: (%s)',
+                      region, subregion, acronym)
+            return -1
+
+        return next(iter(id_))
 
 
 def calculate_region_layer_heights(atlas, region_map, regions, layers, layer_splits):
@@ -290,43 +373,6 @@ def normalize_layer_profiles(layer_heights, profiles):
             ret.loc[region][profile_name] = np.sum(w) / np.dot(p, w)
 
     return ret
-
-
-def get_region_layer_to_id(region_map, region, layers, format_string):
-    '''map `region` name and `layers` to to ids based on `region_map`
-
-    an ID of -1 means it was not found
-    '''
-    return {layer: region_subregion_to_id(region_map, region, layer, format_string)
-            for layer in layers}
-
-
-def region_subregion_to_id(region_map, region, subregion, format_string):
-    '''Populate ids for acronyms
-
-    Args:
-        region_map(voxcell.RegionMap): hierarchy to verify population region against
-        region(str): region to lookup
-        subregion(str/num): subregion
-        format_string(str): passed to format() to join region and subregion
-        ex: '{region}_{subregion}'
-
-    Returns:
-        tuple of array of ids corresponding to rows in df and a dataframe w/ the removed rows
-    '''
-    acronym = format_string.format(region=region, subregion=subregion)
-    id_ = region_map.find(acronym, 'acronym', with_descendants=True)
-
-    if len(id_) == 0:
-        L.warning('Missing region %s, subregion: %s: (%s)',
-                  region, subregion, acronym)
-        return -1
-    elif len(id_) > 1:
-        L.warning('Too many ids for region %s, subregion: %s: (%s)',
-                  region, subregion, acronym)
-        return -1
-
-    return next(iter(id_))
 
 
 def ensure_path(path):

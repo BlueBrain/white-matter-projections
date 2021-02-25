@@ -280,7 +280,7 @@ def assignment_validation(ctx, projection_name, side):
         utils.normalize_layer_profiles(config.region_layer_heights,
                                        config.recipe.layer_profiles))
 
-    region_format = config.region_subregion_format
+    region_format = config.region_subregion_translation.region_subregion_format
     densities = densities.query('projection_name == @projection_name').copy()
     densities = densities[['region_tgt', 'subregion_tgt', 'density']]
     densities['acronym'] = densities.apply(

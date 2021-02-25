@@ -3,18 +3,19 @@ from nose.tools import ok_, eq_
 from white_matter_projections import macro, utils
 from utils import (POP_CAT, RECIPE, RECIPE_TXT, REGION_MAP,
                    REGION_SUBREGION_FORMAT,
+                   REGION_SUBREGION_SEPARATION_FORMAT,
                    SUBREGION_TRANSLATION, tempdir,
+                   get_region_subregion_translation
                    )
 from numpy.testing import assert_allclose, assert_raises
 from pandas.testing import assert_frame_equal
 
 
 def test__parse_populations():
+    region_subregion_translation = get_region_subregion_translation()
     pop_cat, populations = macro._parse_populations(RECIPE['populations'],
                                                     REGION_MAP,
-                                                    SUBREGION_TRANSLATION,
-                                                    REGION_SUBREGION_FORMAT
-                                                    )
+                                                    region_subregion_translation)
 
     # check categories
     ok_('POP1_ALL_LAYERS' in pop_cat.categories)
@@ -31,6 +32,46 @@ def test__parse_populations():
 
     eq_(dict(populations.population_filter.value_counts()),
         {'intratelencephalic': 6, 'EXC': 2, 'Empty': 18})
+
+    populations = [{'atlas_region': {'name': 'ECT' },
+                   'filters': {},
+                   'name': 'ECT_ALL_LAYERS',
+                    }]
+
+    # utils.REGION_SUBREGION_FORMAT has empty middle non-capture group, work around this
+    region_subregion_translation.region_subregion_format = '@{region}(?:_l|;){subregion}'
+
+    pop_cat, populations = macro._parse_populations(populations,
+                                                    REGION_MAP,
+                                                    region_subregion_translation)
+    eq_(len(populations.region.unique()), 1)
+    eq_(populations.region.unique()[0], 'ECT')
+    eq_(set(populations.subregion), {'1', '2', '3', '4', '5', '6'})
+
+    populations = [{'atlas_region': {'name': 'RH' },
+                   'filters': {},
+                   'name': 'RH_ALL_LAYERS',
+                   }]
+
+    pop_cat, populations = macro._parse_populations(populations,
+                                                    REGION_MAP,
+                                                    region_subregion_translation)
+    eq_(len(populations.region.unique()), 1)
+    eq_(populations.region.unique()[0], 'RH')
+    eq_(set(populations.subregion), {'RH'})
+
+    populations = [{'atlas_region': {'name': 'SSp-bfd'},
+                   'filters': {},
+                   'name': 'SSp-bfd_ALL_LAYERS',
+                   }]
+
+    region_subregion_translation.region_subregion_separation_format = '(?P<region>[^\d]+)(?P<subregion>\d.*)'
+
+    pop_cat, populations = macro._parse_populations(populations,
+                                                    REGION_MAP,
+                                                    region_subregion_translation)
+    eq_(len(populations), 14)
+    eq_(set(populations.hier_region), {'VISrll', 'SSp-bfd'})
 
 
 def test__parse_projections():
@@ -55,8 +96,11 @@ def test__parse_layer_profiles():
                              'l5': '5',
                              # note: 6a/b missing, not replaced
                              }
+    region_subregion_translation = utils.RegionSubregionTranslation(
+       subregion_translation=subregion_translation)
+
     layer_profiles = macro._parse_layer_profiles(RECIPE['layer_profiles'],
-                                                 subregion_translation)
+                                                 region_subregion_translation)
     eq_(len(layer_profiles.name.unique()), 2)
     eq_(len(layer_profiles.subregion.unique()), 6)
     eq_(sorted(layer_profiles.subregion.unique()),
@@ -64,10 +108,13 @@ def test__parse_layer_profiles():
 
 
 def test_MacroConnections():
-    recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
-                                                REGION_MAP,
-                                                subregion_translation=SUBREGION_TRANSLATION,
-                                                region_subregion_format=REGION_SUBREGION_FORMAT)
+    region_subregion_translation = get_region_subregion_translation()
+    recipe = macro.MacroConnections.load_recipe(
+        RECIPE_TXT,
+        REGION_MAP,
+        cache_dir=None,
+        region_subregion_translation=region_subregion_translation
+    )
     ipsi = recipe.get_connection_density_map('ipsi')
     assert_allclose(ipsi.loc['ECT']['ACAd'], 0.26407104)
     eq_(ipsi.loc['MOs']['ACAd'], 0.)
@@ -151,25 +198,32 @@ def test__parse_synapse_types():
 
 
 def test_MacroConnections_repr():
+    region_subregion_translation = get_region_subregion_translation()
     recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
                                                 REGION_MAP,
-                                                subregion_translation=SUBREGION_TRANSLATION,
-                                                region_subregion_format=REGION_SUBREGION_FORMAT)
+                                                cache_dir=None,
+                                                region_subregion_translation=region_subregion_translation)
     out = str(recipe)
     ok_('MacroConnections' in out)
     ok_('populations: 26' in out)
 
 
 def test_MacroConnections_serialization():
+    region_subregion_translation = get_region_subregion_translation()
+
     with tempdir('test_MacroConnections_serialization') as tmp:
-        recipe = macro.MacroConnections.load_recipe(RECIPE_TXT,
-                                                    REGION_MAP,
-                                                    cache_dir=tmp,
-                                                    subregion_translation=SUBREGION_TRANSLATION,
-                                                    region_subregion_format=REGION_SUBREGION_FORMAT)
+        recipe = macro.MacroConnections.load_recipe(
+            RECIPE_TXT,
+            REGION_MAP,
+            cache_dir=tmp,
+            region_subregion_translation=region_subregion_translation)
 
 
-        recipe_cached = macro.MacroConnections.load_recipe(RECIPE_TXT, REGION_MAP, cache_dir=tmp)
+        recipe_cached = macro.MacroConnections.load_recipe(
+            RECIPE_TXT,
+            REGION_MAP,
+            cache_dir=tmp,
+            region_subregion_translation=region_subregion_translation)
 
         assert_frame_equal(recipe.populations, recipe_cached.populations)
         assert_frame_equal(recipe.projections, recipe_cached.projections)
