@@ -109,18 +109,20 @@ def sample_all(ctx, target_population, side):
 @cmd.command()
 @click.option('-p', '--population', 'target_population', required=True)
 @click.option('-s', '--side', type=click.Choice(utils.SIDES))
-@click.option('--reverse', is_flag=True,
-              help='Perform sampling of projections in reverse order')
 @click.option('--use-compensation', is_flag=True, default=False,
               help='Perform compensation of density')
+@click.option('--rank', type=click.INT,
+              help='Only do rows modulo rank')
+@click.option('--max-rank', type=click.INT,
+              help='Only do rows modulo rank')
 @click.pass_context
-def subsample(ctx, target_population, side, reverse, use_compensation):
+def subsample(ctx, target_population, side, use_compensation, rank, max_rank):
     '''create candidate synapses from full set of segments created by sample_all'''
     from white_matter_projections import sampling
     config, output = ctx.obj['config'], ctx.obj['output']
 
     sampling.subsample_per_target(
-        output, config, target_population, side, reverse, use_compensation)
+        output, config, target_population, side, use_compensation, rank, max_rank)
 
 
 @cmd.command()

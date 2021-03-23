@@ -161,7 +161,8 @@ def calculate_compensation(ctx, projection_name, side):
         display.draw_triangle(ax, src_vertices, color='green')
         display.draw_triangle(ax, tgt_vertices, color='yellow')
 
-        ax.set_title('Projection: %s, %.4f times compensation' % (projection_name, 1. / comp))
+        ax.set_title('Projection: %s, %.4f times compensation' %
+                     (projection_name, 1. / comp))
 
     print_color('Green triangle: Source region\n'
                 '   White: source sampled positions in flat map\n'

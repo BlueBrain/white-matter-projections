@@ -610,8 +610,9 @@ def _parse_projections(projections, pop_cat):
                ]
 
     projections = pd.DataFrame(data, columns=columns)
-    projections.source_population = projections.source_population.astype(pop_cat)
-    projections.target_population = projections.target_population.astype(pop_cat)
+    if pop_cat is not None:
+        projections.source_population = projections.source_population.astype(pop_cat)
+        projections.target_population = projections.target_population.astype(pop_cat)
     projections.hemisphere = projections.hemisphere.astype(utils.HEMISPHERE)
 
     if missing_targets:

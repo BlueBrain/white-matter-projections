@@ -23,10 +23,10 @@ COMPENSATION_PATH = 'COMPENSATION'
 
 SEGMENT_START_COLS = ['segment_x1', 'segment_y1', 'segment_z1', ]
 SEGMENT_END_COLS = ['segment_x2', 'segment_y2', 'segment_z2', ]
-SEGMENT_COLUMNS = sorted(['section_id', 'segment_id', 'segment_length', ] +
-                         SEGMENT_START_COLS + SEGMENT_END_COLS +
-                         ['tgid']
-                         )
+SEGMENT_COLUMNS = (['afferent_section_type', 'section_id', 'segment_id', 'segment_length'] +
+                   SEGMENT_START_COLS + SEGMENT_END_COLS +
+                   ['tgid']
+                   )
 
 
 def _ensure_only_flatmap_segments(config, segments):
@@ -85,7 +85,7 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
         if df is None or len(df) == 0:
             continue
 
-        del df['Section.NEURITE_TYPE'], df['Segment.R1'], df['Segment.R2']
+        del df['Segment.R1'], df['Segment.R2']
 
         starts, ends = df[start_cols].values, df[end_cols].values
         df['segment_length'] = np.linalg.norm(ends - starts, axis=1).astype(np.float32)
@@ -101,6 +101,11 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
             df[fix_name(name)] = df[name].values.astype(np.float32)
             del df[name]
 
+        df['afferent_section_type'] = pd.to_numeric(
+            df['Section.NEURITE_TYPE'].apply(lambda x: x.value),
+            downcast='unsigned')
+        del df['Section.NEURITE_TYPE']
+
         # uint -> smallest uint needed
         for name in ('Section.ID', 'Segment.ID', ):
             df[fix_name(name)] = pd.to_numeric(df[name], downcast='unsigned')
@@ -108,7 +113,7 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
 
         df['tgid'] = pd.to_numeric(df['gid'], downcast='unsigned')
         del df['gid']
-        #  }
+        # }
 
         chunks.append(df)
 
@@ -140,7 +145,9 @@ def _full_sample_parallel(positions,
         chunks(int): number of chunks
     '''
     if chunks is None:
-        chunks = (len(positions) // 500) + 1
+        chunks = max(32, (len(positions) // 500) + 1)
+
+    L.debug('_full_sample_parallel: Using %s chunks', chunks)
 
     worker = delayed(_full_sample_worker)
     # TODO: check if using multiprocessing backend is faster here
@@ -347,8 +354,10 @@ def _add_random_position_and_offset(segments, chunk_size=1000000, n_jobs=-2):
 
     syns = pd.DataFrame(output, columns=['x', 'y', 'z', 'segment_offset'])
     syns['segment_length'] = segments['segment_length'].values
+    syns['afferent_section_type'] = segments['afferent_section_type'].values
+
     for c in ('section_id', 'segment_id', 'tgid', ):
-        syns[c] = pd.to_numeric(segments[c].values, downcast='unsigned')
+        syns[c] = segments[c].values
 
     return syns
 
@@ -641,8 +650,24 @@ def _pick_syns(syns, count):
     return picked
 
 
-def subsample_per_target(output, config, target_population, side, reverse, use_compensation):
-    '''Create feathers files in `output` for projections targeting `target_population`'''
+def subsample_per_target(output,
+                         config,
+                         target_population,
+                         side,
+                         use_compensation,
+                         rank,
+                         max_rank=0):
+    '''Create feathers files in `output` for projections targeting `target_population`
+
+    Args:
+        output(str): path to output directory
+        config(utils.Config): config
+        target_population(str):
+        side(str): 'left' or 'right'
+        use_compensation(bool): whether to use compensation
+        rank(int): which worker number this is
+        max_rank(int): total number of workers
+    '''
     # pylint: disable=too-many-locals
     L.debug('Sub-sampling for target: %s', target_population)
     target_population = target_population  # trick pylint since used in pandas query
@@ -670,10 +695,10 @@ def subsample_per_target(output, config, target_population, side, reverse, use_c
                   .query('region_tgt == @region_tgt')
                   .groupby(['source_population', 'projection_name', 'hemisphere', ]))
 
-        if reverse:
-            gb.reverse()
-
         for i, (keys, density) in enumerate(gb):
+            if max_rank and i % max_rank != rank:
+                continue
+
             source_population, projection_name, hemisphere = keys
             tgt_vertices = config.recipe.projections_mapping[
                 source_population][projection_name]['vertices']

@@ -71,7 +71,7 @@ def test__full_sample_worker(patch_synapses):
     eq_(len(df), 1)  # axon is skipped
     ok_(isinstance(df, pd.core.frame.DataFrame))
     assert_allclose(df.segment_length.values, np.linalg.norm((0.75 - .5, 0.75 - .5, 0.75 - .5)))
-    eq_(sorted(df.columns), sampling.SEGMENT_COLUMNS)
+    eq_(sorted(df.columns), sorted(sampling.SEGMENT_COLUMNS))
 
     #only axon
     segs_df = np.array([(0.5, 0.5, 0.5, 0.75, 0.75, 0.75, 1., 2., 1, 10, 100, 2),  # axon
@@ -80,13 +80,13 @@ def test__full_sample_worker(patch_synapses):
     patch_synapses._sample_with_flat_index.return_value = segs_df
     df = sampling._full_sample_worker(min_xyzs, index_path, dims)
     eq_(len(df), 0)  # axon is skipped
-    eq_(sorted(df.columns), sampling.SEGMENT_COLUMNS)
+    eq_(sorted(df.columns), sorted(sampling.SEGMENT_COLUMNS))
 
     #empty return from _sample_with_flat_index
     patch_synapses._sample_with_flat_index.return_value = pd.DataFrame(columns=segs_df.columns)
     df = sampling._full_sample_worker(min_xyzs, index_path, dims)
     eq_(len(df), 0)  # axon is skipped
-    eq_(sorted(df.columns), sampling.SEGMENT_COLUMNS)
+    eq_(sorted(df.columns), sorted(sampling.SEGMENT_COLUMNS))
 
 
 def test__dilate_region():
@@ -127,7 +127,7 @@ def test_sample_all():
     brain_regions, _ = test_utils.fake_brain_regions()
 
     df = pd.DataFrame(
-        np.array([[101, 201, 10., 0., 10., 0., 10., 0., 10., 31337], ]),
+        np.array([[101, 201, 10., 0., 1, 10., 0., 10., 0., 10., 31337], ]),
         columns=sampling.SEGMENT_COLUMNS)
 
     side = 'right'
@@ -178,17 +178,17 @@ def test__add_random_position_and_offset():
     np.random.seed(42)
     columns = (sampling.SEGMENT_START_COLS +
                sampling.SEGMENT_END_COLS +
-               ['segment_length', 'section_id', 'segment_id', 'tgid'])
+               ['segment_length', 'section_id', 'segment_id', 'tgid', 'afferent_section_type'])
     length = math.sqrt(100 + 1 + 1)
     syns = pd.DataFrame(np.array([[0., 0., 0.,
                                    10., 1., 1.,
-                                   length, 10, 11, 12]]),
+                                   length, 10, 11, 12, 1]]),
                         columns=columns)
     ret = sampling._add_random_position_and_offset(syns, n_jobs=1)
-    expected = pd.DataFrame([[6.2545986, 0.6254599, 0.6254599, 3.7826698, 10.099505, 10, 11, 12]],
+    expected = pd.DataFrame([[6.2545986, 0.6254599, 0.6254599, 3.7826698, 10.099505, 1, 10, 11, 12, ]],
                             columns=['x', 'y', 'z',
                                      'segment_offset', 'segment_length',
-                                     'section_id', 'segment_id', 'tgid'])
+                                     'afferent_section_type', 'section_id', 'segment_id', 'tgid'])
     assert_frame_equal(ret, expected, check_dtype=False)
 
 
@@ -357,10 +357,12 @@ def test__subsample_per_source():
 def test__pick_candidate_synapse_locations_by_function():
     np.random.seed(37)
 
-    columns = ['segment_x1', 'segment_y1', 'segment_z1',
+    columns = ['afferent_section_type',
+               'segment_x1', 'segment_y1', 'segment_z1',
                'segment_x2', 'segment_y2', 'segment_z2',
                'segment_offset', 'segment_length', 'section_id', 'segment_id', 'tgid', ]
-    data = [[0.0, 0.0, 0.0,
+    data = [[1,
+             0.0, 0.0, 0.0,
              1.0, 1.0, 1.0,
              0.1, 10, 1, 1, 1],
             ]
