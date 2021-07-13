@@ -285,12 +285,14 @@ def _correct_metadata_dtypes(metadata):
 
 def _convert_csv(csv_path):
     '''extrace metadata and path coordinates from from `csv_path`'''
+    # pylint doesn't handle pd.read_csv right
+    # pylint: disable=unsubscriptable-object
     df = pd.read_csv(csv_path)
     metadata = pd.DataFrame(index=df.id.astype(int))
     metadata.index.name = 'id'
 
-    metadata['region_id'] = df['structure-id'].values.astype(int)
-    metadata['region_acronym'] = df['structure-abbrev'].values
+    metadata['region_id'] = df['structure-id'].to_numpy(dtype=int)
+    metadata['region_acronym'] = df['structure-abbrev'].to_numpy()
     x, y, z = zip(*extract_coords(' '.join(df['injection-coordinates'])))
 
     metadata['injection_x'] = x

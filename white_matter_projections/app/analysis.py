@@ -40,6 +40,7 @@ def flat_map(ctx):
         ax.set_aspect('equal')
 
         display.plot_allen_coloured_flat_map(ax, config, regions='all')
+        display.plot_source_region_triangles(ax, config, regions='all')
 
 
 @cmd.command()
@@ -131,7 +132,7 @@ def calculate_compensation(ctx, projection_name, side):
     tgt_vertices = config.recipe.projections_mapping[source_population][projection_name]['vertices']
 
     name = os.path.join(ctx.obj['output'],
-                        'calculate_compensation_%s_%s.png' % (projection_name, side))
+                        'calculate_compensation_%s_%s' % (projection_name, side))
     with ctx.obj['figure'](name) as fig:
         ax = fig.gca()
         ax.set_aspect('equal')
@@ -186,7 +187,7 @@ def projection(ctx, projection_name, side):
     allocations = (micro.load_allocations(allocations_path, config.recipe.projections_mapping)
                    .set_index('projection_name'))
 
-    name = str(os.path.join(output, 'projection_%s_%s.png' % (projection_name, side)))
+    name = str(os.path.join(output, 'projection_%s_%s' % (projection_name, side)))
     with ctx.obj['figure'](name) as fig:
         ax = fig.gca()
         ax.set_aspect('equal')
@@ -282,8 +283,8 @@ def assignment_validation(ctx, projection_name, side):
                                        config.recipe.layer_profiles))
 
     region_format = config.region_subregion_translation.region_subregion_format
-    densities = densities.query('projection_name == @projection_name').copy()
-    densities = densities[['region_tgt', 'subregion_tgt', 'density']]
+    densities = densities.query('projection_name == @projection_name')
+    densities = densities[['region_tgt', 'subregion_tgt', 'density']].copy()
     densities['acronym'] = densities.apply(
         lambda r: region_format.format(region=r.region_tgt, subregion=r.subregion_tgt).lstrip('@'),
         axis=1)

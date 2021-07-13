@@ -102,7 +102,7 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
             del df[name]
 
         df['afferent_section_type'] = pd.to_numeric(
-            df['Section.NEURITE_TYPE'].apply(lambda x: x.value),
+            df['Section.NEURITE_TYPE'].apply(int),
             downcast='unsigned')
         del df['Section.NEURITE_TYPE']
 

@@ -494,7 +494,7 @@ def population2region(populations, population_name):
 def hierarchy_2_df(content):
     '''convert a AIBS hierarchy.json file into a DataFrame
     Args:
-        content(str): content of heirarchy.json file
+        content(str): content of hierarchy.json file
 
     Returns:
         pd.DataFrame with columns ['acronym', 'id', 'name', 'parent_id']

@@ -193,6 +193,8 @@ def draw_triangle(ax, vertices, color='white'):
     v = (0, 1, 2, 0)
     ax.plot(vertices[v, 1], vertices[v, 0], c=color)
     ax.scatter(vertices[v[:3], 1], vertices[v[:3], 0], c=('red', 'green', 'blue'), s=40)
+    for s in v[:-1]:
+        ax.text(x=vertices[s, 1], y=vertices[s, 0], s=str(s))
 
 
 def plot_source_region_triangles(ax, config, regions='all', only_right=False):
@@ -272,6 +274,8 @@ def draw_projection(ax, config, allocations, syns, projection_name, side):
     all_sgids = np.unique(all_sgids)
     used_sgids = syns.sgid.unique()
     mirror = utils.is_mirror(side, hemisphere)
+
+    L.info('%d unique sgids, %d used unique sgids', len(all_sgids), len(used_sgids))
 
     for sgids, src_color, dst_color, alpha in ((all_sgids, 'white', 'red', 1.),
                                                (used_sgids, 'green', 'blue', 1.),
