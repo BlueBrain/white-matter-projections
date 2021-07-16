@@ -55,8 +55,8 @@ def test__ensure_only_segments_from_region():
     assert_allclose(ret.tgid.to_numpy(), [30])
 
 
-@patch('white_matter_projections.sampling.synapses')
-def test__full_sample_worker(patch_synapses):
+@patch('white_matter_projections.sampling._sample_with_flat_index')
+def test__full_sample_worker(mock_sample):
     min_xyzs = np.array([(.5, .5, .5),  # single voxel
                         ])
     index_path = 'fake_index_path'
@@ -66,7 +66,7 @@ def test__full_sample_worker(patch_synapses):
                         (0.5, 0.5, 0.5, 0.75, 0.75, 0.75, 1., 2., 1, 10, 100, 3),  # basal
                         ])
     segs_df = SegmentIndex._wrap_result(segs_df)
-    patch_synapses._sample_with_flat_index.return_value = segs_df
+    mock_sample.return_value = segs_df
     df = sampling._full_sample_worker(min_xyzs, index_path, dims)
     eq_(len(df), 1)  # axon is skipped
     ok_(isinstance(df, pd.core.frame.DataFrame))
@@ -77,13 +77,13 @@ def test__full_sample_worker(patch_synapses):
     segs_df = np.array([(0.5, 0.5, 0.5, 0.75, 0.75, 0.75, 1., 2., 1, 10, 100, 2),  # axon
                         ])
     segs_df = SegmentIndex._wrap_result(segs_df)
-    patch_synapses._sample_with_flat_index.return_value = segs_df
+    mock_sample.return_value = segs_df
     df = sampling._full_sample_worker(min_xyzs, index_path, dims)
     eq_(len(df), 0)  # axon is skipped
     eq_(sorted(df.columns), sorted(sampling.SEGMENT_COLUMNS))
 
     #empty return from _sample_with_flat_index
-    patch_synapses._sample_with_flat_index.return_value = pd.DataFrame(columns=segs_df.columns)
+    mock_sample.return_value = pd.DataFrame(columns=segs_df.columns)
     df = sampling._full_sample_worker(min_xyzs, index_path, dims)
     eq_(len(df), 0)  # axon is skipped
     eq_(sorted(df.columns), sorted(sampling.SEGMENT_COLUMNS))
@@ -180,12 +180,24 @@ def test__add_random_position_and_offset():
                sampling.SEGMENT_END_COLS +
                ['segment_length', 'section_id', 'segment_id', 'tgid', 'afferent_section_type'])
     length = math.sqrt(100 + 1 + 1)
-    syns = pd.DataFrame(np.array([[0., 0., 0.,
-                                   10., 1., 1.,
-                                   length, 10, 11, 12, 1]]),
+    syns = pd.DataFrame(np.array([[0., 0., 0., 10., 1., 1., length, 10, 11, 12, 1],
+                                  [10., 1., 1., 0., 0., 0., length, 100, 110, 120, 1]
+                                  ]),
                         columns=columns)
-    ret = sampling._add_random_position_and_offset(syns, n_jobs=1)
-    expected = pd.DataFrame([[6.2545986, 0.6254599, 0.6254599, 3.7826698, 10.099505, 1, 10, 11, 12, ]],
+
+    seed_sequences = np.random.SeedSequence(0)
+    ret = sampling._add_random_position_and_offset(syns, seed_sequences, n_jobs=1)
+    expected = pd.DataFrame([[9.429376, 0.942938, 0.942938, 9.523203, 10.099505, 1, 10, 11, 12, ],
+                             [6.836628, 0.683663, 0.683663, 3.194849, 10.099505, 1, 100, 110, 120, ]
+                             ],
+                            columns=['x', 'y', 'z',
+                                     'segment_offset', 'segment_length',
+                                     'afferent_section_type', 'section_id', 'segment_id', 'tgid'])
+    assert_frame_equal(ret, expected, check_dtype=False)
+
+    ret = sampling._add_random_position_and_offset(syns, seed_sequences, n_jobs=1)
+    expected = pd.DataFrame([[6.771968, 0.677197, 0.677197, 6.839353, 10.099505, 1, 10, 11, 12, ],
+                             [7.570133, 0.757013, 0.757013, 2.454046, 10.099505, 1, 100, 110, 120, ]],
                             columns=['x', 'y', 'z',
                                      'segment_offset', 'segment_length',
                                      'afferent_section_type', 'section_id', 'segment_id', 'tgid'])
@@ -260,14 +272,14 @@ def test__pick_syns():
     np.random.seed(37)
 
     syns = pd.DataFrame([10.], columns=['segment_length'])
-    ret = sampling._pick_syns(syns, count=1)
+    ret = sampling._pick_syns(syns, count=1, rng=np.random)
     eq_(list(ret), [0])
 
-    ret = sampling._pick_syns(syns, count=2)
+    ret = sampling._pick_syns(syns, count=2, rng=np.random)
     eq_(list(ret), [0, 0])
 
     syns = pd.DataFrame([0.000000000001, 10], columns=['segment_length'])
-    ret = sampling._pick_syns(syns, count=1)
+    ret = sampling._pick_syns(syns, count=1, rng=np.random)
     eq_(list(ret), [1])
 
 
@@ -315,7 +327,6 @@ def test__subsample_per_source():
             mock_config.return_value = config
 
             syn_locations.side_effect = _pick_candidate_synapse_locations_mock
-            np.random.seed(37)
 
             vertices = np.array(list(zip([0., 1., 0.], [0., 0., 1.])))
 
@@ -325,7 +336,7 @@ def test__subsample_per_source():
 
             syn_count = sampling._subsample_per_source(config, vertices,
                                                        projection_name, region_tgt, densities, hemisphere, side,
-                                                       samples, output)
+                                                       samples, output, seed=0)
             eq_(syn_count, 1)  # int((0.14 + 0.15) * 5.) == 1
 
             ok_(os.path.exists(output_path))
@@ -335,7 +346,7 @@ def test__subsample_per_source():
             #already sampled, file exists
             syn_count = sampling._subsample_per_source(config, vertices,
                                                        projection_name, region_tgt, densities, hemisphere, side,
-                                                       samples, output)
+                                                       samples, output, seed=0)
             eq_(syn_count, 0)
 
             # duplicated densities
@@ -346,7 +357,7 @@ def test__subsample_per_source():
             os.unlink(output_path)
             syn_count = sampling._subsample_per_source(config, vertices,
                                                        projection_name, region_tgt, densities, hemisphere, side,
-                                                       samples, output)
+                                                       samples, output, seed=0)
             eq_(syn_count, 5)  # int(1. * 5.), where 5 is the volume
 
             ok_(os.path.exists(output_path))

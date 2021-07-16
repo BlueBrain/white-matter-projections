@@ -1,11 +1,11 @@
-
 import itertools
 import numpy as np
 from numpy.testing import assert_allclose
 import networkx as nx
-from utils import \
-    create_statistical_interaction_strength_matrix,\
+from utils import (
+    create_statistical_interaction_strength_matrix,
     create_innervation_probability_row
+    )
 from white_matter_projections import ptypes_generator
 from white_matter_projections import ptypes_generator_utils as utils
 
@@ -68,7 +68,7 @@ def test_matrices_consistency():
     interaction_matrix, innervation_probability_row = _get_defining_matrices()
     # Generate the tree
     generator = ptypes_generator.PtypesGenerator(
-        innervation_probability_row, interaction_matrix)
+        innervation_probability_row, interaction_matrix, np.random)
 
     actual_tree = generator.tree
     # Consistency check: the matrices built from the generated tree must coincide with the matrices
@@ -86,7 +86,7 @@ def test_tree_isomorphism():
     interaction_matrix, innervation_probability_row = _get_defining_matrices()
     # Generate the tree
     generator = ptypes_generator.PtypesGenerator(
-        innervation_probability_row, interaction_matrix)
+        innervation_probability_row, interaction_matrix, np.random)
 
     # Compare with the expected tree
     expected_tree = _get_expected_tree()
@@ -98,7 +98,7 @@ def test_Ptypes_generator():
     interaction_matrix, innervation_probability_row = _get_defining_matrices()
     # Generate the tree
     generator = ptypes_generator.PtypesGenerator(
-        innervation_probability_row, interaction_matrix)
+        innervation_probability_row, interaction_matrix, np.random)
 
     # In the array below, the entry (i, i) represents the innervation probability of
     # the target region of index i, while the entry (i, j), for i distinct from j, represents

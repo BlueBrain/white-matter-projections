@@ -225,7 +225,7 @@ def ptypes_to_target_groups(ptypes_array, regions, gids):
     return dict(target_groups)
 
 
-def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids):
+def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids, rng):
     '''Random allocation of gids to target groups in accordance to the tree
     model of 'A null model of the mouse whole-neocortex micro-connectome',
     see Section 'A model to generate projection types' of
@@ -238,6 +238,7 @@ def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids)
             interaction matrix section of the recipe for a given source of interest.
         gids(numpy.ndarray): 1D array of gids to be allocated
             to different target populations.
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         target_groups(dict): dict whose keys are target region names and whose values are
@@ -247,7 +248,7 @@ def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids)
     # We need to handle the missing matrix entries as well.
     full_interaction_matrix = create_completed_interaction_matrix(
         recipe_interaction_matrix, target_fractions)
-    generator = PtypesGenerator(list(target_fractions), full_interaction_matrix.values)
+    generator = PtypesGenerator(list(target_fractions), full_interaction_matrix.values, rng)
     # We create a generator instance based on the tree model.
     ptypes = generator.generate_random_ptypes(len(gids))
     regions = dict(enumerate(target_fractions.keys()))
@@ -257,7 +258,7 @@ def _allocate_gids_randomly_to_targets(targets, recipe_interaction_matrix, gids)
 
 
 def allocate_gids_to_targets(
-    targets, recipe_interaction_matrix, gids, algorithm=Algorithm.GREEDY
+    targets, recipe_interaction_matrix, gids, rng, algorithm=Algorithm.GREEDY
 ):
     '''Allocation of gids to target groups
 
@@ -270,6 +271,7 @@ def allocate_gids_to_targets(
             algorithm(string): (optional) algorithm to be used so as to populate target groups.
             Defaults to STOCHASTIC_TREE_MODEL, the allocation schema based on the tree model of
             'A null model of the mouse whole-neocortex micro-connectome' by M. Reimann et al.
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         target_groups(dict): dict whose keys are target region names and whose values are
@@ -283,10 +285,10 @@ def allocate_gids_to_targets(
         Algorithm.STOCHASTIC_TREE_MODEL: _allocate_gids_randomly_to_targets,
         Algorithm.GREEDY: _allocate_gids_greedily_to_targets
     }
-    return algorithm_function[algorithm](targets, recipe_interaction_matrix, gids)
+    return algorithm_function[algorithm](targets, recipe_interaction_matrix, gids, rng)
 
 
-def _allocate_gids_greedily_to_targets(targets, recipe_interaction_matrix, gids):
+def _allocate_gids_greedily_to_targets(targets, recipe_interaction_matrix, gids, rng):
     '''Greedy allocation of gids to target groups
 
     Args:
@@ -295,6 +297,7 @@ def _allocate_gids_greedily_to_targets(targets, recipe_interaction_matrix, gids)
             recipe_interaction_matrix(pandas.DataFrame): DataFrame holding
             the interaction matrix section of the recipe for a given source of interest.
         gids(np.array of gids): gids to allocate to different target populations
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         target_groups(dict): dict whose keys are target region names and whose values are
@@ -307,12 +310,12 @@ def _allocate_gids_greedily_to_targets(targets, recipe_interaction_matrix, gids)
         PendingDeprecationWarning
     )
     total_counts, overlap_counts = _ptype_to_counts(len(gids), targets, recipe_interaction_matrix)
-    target_groups = _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids)
+    target_groups = _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids, rng)
 
     return target_groups
 
 
-def _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids):
+def _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids, rng):
     '''Greedy allocation of gids to target groups
 
     Args:
@@ -322,6 +325,7 @@ def _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids):
             and whose values are the expected overlap counts of the corresponding
             target groups.
         gids(np.array of gids): gids to allocate to different target populations
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         target_groups(dict): dict whose keys are target region names and whose values are
@@ -350,7 +354,8 @@ def _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids):
     Refer to test with a case that fails.
     '''
     # pylint: disable=too-many-locals
-    choice = partial(np.random.choice, replace=False)
+
+    choice = partial(rng.choice, replace=False)
 
     names, _, total_counts, overlap_counts = _make_numeric_groups(
         total_counts, overlap_counts)
@@ -372,8 +377,8 @@ def _greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids):
             ret_g1[:half_needed] = choice(list(set_g0 - set_g1), size=half_needed)
 
             # reduce chance these overlapping gids are removed by subsequent interactions
-            np.random.shuffle(ret_g0)
-            np.random.shuffle(ret_g1)
+            rng.shuffle(ret_g0)
+            rng.shuffle(ret_g1)
 
         assert len(ret_g0) == total_counts[g0]
         assert len(ret_g1) == total_counts[g1]
@@ -462,12 +467,13 @@ def get_gids_by_population(populations, get_cells, population):
     return gids
 
 
-def allocate_projections(recipe, get_cells):
+def allocate_projections(recipe, get_cells, rng):
     '''Allocate *all* projections in recipe based on ptypes in recipe
 
     Args:
         recipe(MacroConnections): recipe
         cells(pandas.DataFrame): as returned by bluepy.Circuit.cells.get()
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         dict of source_population -> dict projection_name -> np array of source gids
@@ -488,7 +494,7 @@ def allocate_projections(recipe, get_cells):
         gids = get_gids_by_population(recipe.populations, get_cells, source_population)
         interaction_matrix = recipe.ptypes_interaction_matrix.get(source_population, None)
 
-        ret[source_population] = allocate_gids_to_targets(ptype, interaction_matrix, gids)
+        ret[source_population] = allocate_gids_to_targets(ptype, interaction_matrix, gids, rng)
 
         used = set.union(*map(set, ret[source_population].values()))
         L.info('... has %d gids, %d used, %0.3f',
@@ -586,7 +592,7 @@ def separate_source_and_targets(left_cells, right_cells, sgids, hemisphere, side
     return source_cells
 
 
-def _assign_groups(src_flat, tgt_flat, sigma, closest_count):
+def _assign_groups_worker(src_flat, tgt_flat, sigma, closest_count, rng):
     '''helper for multiprocessing
 
     Args:
@@ -594,6 +600,7 @@ def _assign_groups(src_flat, tgt_flat, sigma, closest_count):
         tgt_flat(array(Nx2)) target synapses locations in flat coordinates
         sigma(float): sigma for normal distribution for weights
         closest_count(int): number of fibers in the kd-tree
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         index into src_flat for each of the tgt_flat
@@ -601,7 +608,6 @@ def _assign_groups(src_flat, tgt_flat, sigma, closest_count):
     '''
     from scipy.spatial import KDTree
     from scipy.stats import norm
-    from projectionizer.utils import choice
 
     kd_fibers = KDTree(src_flat)
     distances, sgids = kd_fibers.query(tgt_flat, closest_count)
@@ -611,14 +617,14 @@ def _assign_groups(src_flat, tgt_flat, sigma, closest_count):
     #  each connection as a gaussian of the pairwise distances with a
     #  specified variance $\sigma_M$.
 
-    prob = norm.pdf(distances, 0, sigma)
+    prob = norm.pdf(distances, loc=0, scale=sigma)
     prob = np.nan_to_num(prob)
-    idx = choice(prob)
+    idx = utils.choice(prob, rng)
 
     return sgids[np.arange(len(sgids)), idx]
 
 
-def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=None):
+def assign_groups(src_flat, tgt_flat, sigma, closest_count, seed, n_jobs=-2, chunks=None):
     '''
 
     Args:
@@ -626,11 +632,14 @@ def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=No
         tgt_flat(array(Nx2)) target synapses locations in flat coordinates
         sigma(float): sigma for normal distribution for weights
         closest_count(int): number of fibers in the kd-tree
+        seed(int): used to seed the `np.random.SeedSequence`
         n_jobs(int): number of jobs
+        chunks(int): number of chunks to use
 
     Returns:
         index into src_xy for each of the tgt_xy
     '''
+    seed_sequences = np.random.SeedSequence(seed)
 
     if chunks is None:
         chunks = len(tgt_flat) // 10000 + 1
@@ -644,9 +653,10 @@ def assign_groups(src_flat, tgt_flat, sigma, closest_count, n_jobs=-2, chunks=No
                  backend='multiprocessing',
                  # verbose=51
                  )
-    worker = delayed(_assign_groups)
-    ids = p(worker(src_flat.values, uv, sigma, closest_count)
-            for uv in np.array_split(tgt_flat, chunks))
+    worker = delayed(_assign_groups_worker)
+    ids = p(worker(src_flat.values, uv, sigma, closest_count, np.random.default_rng(seed))
+            for uv, seed in zip(np.array_split(tgt_flat, chunks),
+                                seed_sequences.spawn(chunks)))
     ids = np.concatenate(ids)
 
     return src_flat.index[ids]
@@ -686,7 +696,7 @@ def _calculate_delay_direct(src_cells, syns, conduction_velocity):
     return delay.astype(np.float32)
 
 
-def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction_velocity):
+def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction_velocity, rng):
     '''for all the synapse locations, assign a streamline
 
     Args:
@@ -696,7 +706,8 @@ def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction
         between points within the regions; a row within this dataset
         is chosen, and saved so that the streamlines can be visualized
         conduction_velocity(dict): values for inter and intra region velocities
-        in um/ms
+            in um/ms
+        rng(np.random.Generator): used for random number generation
     '''
     # pylint: disable=too-many-locals
     START_COLS = ['start_x', 'start_y', 'start_z']
@@ -708,7 +719,7 @@ def _calculate_delay_streamline(src_cells, syns, streamline_metadata, conduction
 
     path_rows = metadata.index.values
 
-    path_rows = np.random.choice(path_rows, size=len(syns))
+    path_rows = rng.choice(path_rows, size=len(syns))
     gid2row = np.vstack((syns.sgid.values, path_rows.astype(np.int64))).T
     gid2row = pd.DataFrame(gid2row, columns=['sgid', 'row']).drop_duplicates()
 
@@ -758,7 +769,7 @@ def assignment(output, config, allocations, projections_mapping, side,
 
     count = len(allocations)
     alloc = allocations[['projection_name', 'source_population', 'target_population',
-                         'sgids', 'hemisphere', ]].values
+                         'sgids', 'hemisphere', ]].to_numpy()
     if reverse:
         alloc = reversed(alloc)
 
@@ -790,7 +801,8 @@ def assignment(output, config, allocations, projections_mapping, side,
         flat_tgt_uvs = mapper.map_points_to_flat(syns[utils.XYZ].values)
 
         sigma = math.sqrt(projections_mapping[source_population][projection_name]['variance'])
-        syns['sgid'] = assign_groups(src_coordinates, flat_tgt_uvs, sigma, closest_count)
+        syns['sgid'] = assign_groups(
+            src_coordinates, flat_tgt_uvs, sigma, closest_count, seed=config.seed + i)
 
         if config.delay_method == 'streamlines':
             source_region = utils.population2region(config.recipe.populations, source_population)
@@ -804,7 +816,9 @@ def assignment(output, config, allocations, projections_mapping, side,
             syns['delay'], gid2row = _calculate_delay_streamline(src_cells,
                                                                  syns,
                                                                  metadata,
-                                                                 conduction_velocity)
+                                                                 conduction_velocity,
+                                                                 config.rng
+                                                                 )
             utils.write_frame(output_path.replace('.feather', '_gid2row.feather'), gid2row)
         elif config.delay_method == 'dive':
             syns['delay'] = _calculate_delay_dive(

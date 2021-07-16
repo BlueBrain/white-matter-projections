@@ -18,20 +18,21 @@ setup(
     license='BBP-internal-confidential',
     install_requires=[
         'jinja2>=2.10',
-        'bluepy>=2.0.0',
         'click>=6.0',
         'lazy>=1.0',
         'joblib>=0.13.1',
         'matplotlib>=3.0.0',
         'pandas>=0.23.0',
-        'projectionizer>=1.2.0.dev1',
         'pyarrow>=0.11.1',
         'pyyaml>=3.12',
         'requests>=2.19.1',
         'seaborn>=0.8.1',
-        'voxcell>=3',
         'networkx==2.2',
-        'scipy>=1.2.2'
+        'scipy>=1.2.2',
+        # BBP
+        'bluepy>=2.0.0',
+        'libFLATIndex>=1.8.11',
+        'voxcell>=3',
     ],
     packages=find_packages(),
     classifiers=[

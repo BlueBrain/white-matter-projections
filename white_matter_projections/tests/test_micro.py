@@ -129,7 +129,8 @@ def test__greedy_gids_allocation_from_counts():
     total_counts = {'proj0': 250, 'proj1': 250, 'proj2': 100}
     overlap_counts = {}
     gids = np.arange(1000)  # 1000 > 250 + 250 + 100
-    ret = micro._greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids)
+    ret = micro._greedy_gids_allocation_from_counts(
+        total_counts, overlap_counts, gids, np.random)
     eq_(['proj0', 'proj1', 'proj2'], sorted(ret))
     eq_(len(ret['proj0']), 250)
     eq_(len(ret['proj1']), 250)
@@ -143,7 +144,8 @@ def test__greedy_gids_allocation_from_counts():
                       }
     # want a large number here so unlikely to have the required overlap
     gids = np.arange(10000)
-    ret = micro._greedy_gids_allocation_from_counts(total_counts, overlap_counts, gids)
+    ret = micro._greedy_gids_allocation_from_counts(
+        total_counts, overlap_counts, gids, np.random)
 
     eq_(len(ret['proj0']), 250)
     eq_(len(ret['proj1']), 250)
@@ -280,7 +282,8 @@ def test_allocate_gids_to_targets_exception():
     recipe_interaction_matrix = None
     # Unsupported type of algorithm
     algorithm = 'sublinear_beta_optimal_allocation_schema'
-    micro.allocate_gids_to_targets(targets, recipe_interaction_matrix, gids, algorithm=algorithm)
+    micro.allocate_gids_to_targets(
+        targets, recipe_interaction_matrix, gids, algorithm=algorithm, rng=np.random)
 
 
 def check_target_group_sizes(algorithm, total_count=1000):
@@ -306,7 +309,7 @@ def check_target_group_sizes(algorithm, total_count=1000):
         index=incomplete_region_names)
     np.random.seed(0)
     target_groups = micro.allocate_gids_to_targets(
-        targets, recipe_interaction_matrix, gids, algorithm=algorithm)
+        targets, recipe_interaction_matrix, gids, rng=np.random, algorithm=algorithm)
     target_fractions = targets.set_index('projection_name')['fraction']
     region_names = []
     # Testing the size of the expected population for each target group
@@ -377,19 +380,19 @@ def test_separate_source_and_targets():
     eq_(len(ret), 6)
 
 
-def test__assign_groups():
+def test__assign_groups_worker():
     tgt_flat = np.array([[-10., -10.],
                          [10., 10.],
                          ])
 
     src_flat = np.array([[0., 0.], ])
-    res = micro._assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10)
+    res = micro._assign_groups_worker(src_flat, tgt_flat, sigma=10, closest_count=10, rng=np.random)
     eq_(list(res), [0, 0])
 
     src_flat = np.array([[-10., -10.],
                          [10., 10.],
                          ])
-    res = micro._assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10)
+    res = micro._assign_groups_worker(src_flat, tgt_flat, sigma=10, closest_count=10, rng=np.random)
     eq_(list(res), [0, 1])
 
 
@@ -400,7 +403,7 @@ def test_assign_groups():
     src_flat = pd.DataFrame([[-10., -10.],
                              [10., 10.],
                              ], index=(10, 20))
-    res = micro.assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10, n_jobs=1)
+    res = micro.assign_groups(src_flat, tgt_flat, sigma=10, closest_count=10, n_jobs=1, seed=0)
     eq_(list(res), [10, 20])
 
 
@@ -428,7 +431,8 @@ def test__calculate_delay_streamline():
                            }
 
     delay, gid2row = micro._calculate_delay_streamline(src_cells, syns, streamline_metadata,
-                                                       conduction_velocity=conduction_velocity)
+                                                       conduction_velocity=conduction_velocity,
+                                                       rng=np.random)
     eq_(list(gid2row.row), [5, 3, 5, 5, ])  # based on random picking
     assert_allclose(gid2row.sgid.values, syns.sgid.values)
     eq_(list(delay), [557., 366., 565., 584.])

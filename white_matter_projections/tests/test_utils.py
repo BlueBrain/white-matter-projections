@@ -307,3 +307,21 @@ class TestRegionSubregionTranslation(object):
         eq_(rst.region_subregion_to_id(test_utils.REGION_MAP, 'ECT', '1'), 836)
 
 
+def test_choice():
+    np.random.seed(0)
+    indices = utils.choice(np.array([[1., 2, 3, 4],
+                                     [0, 0, 1, 0],
+                                     [6, 5, 4, 0]]),
+                           np.random)
+    assert_array_equal(indices, [2, 2, 1])
+
+
+def test_normalize_probability():
+    p = np.array([1, 0])
+    ret = utils.normalize_probability(p)
+    assert_array_equal(p, ret)
+
+
+def test_normalize_probability_raises():
+    p = np.array([1e-10, -2e-12])
+    assert_raises(utils.ErrorCloseToZero, utils.normalize_probability, p)

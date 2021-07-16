@@ -49,32 +49,46 @@ class Config(object):
 
         return config
 
-    @lazy
+    @property
+    def seed(self):
+        '''get seed for this config, otherwise use 42'''
+        return self.config.get('seed', 42)
+
+    @property
+    def rng(self):
+        '''get np.random.default_rng with seed for this config'''
+        return np.random.default_rng(seed=self.seed)
+
+    @property
     def volume_dilatation(self):
         ''' Number of pixels used for the volume dilatation '''
         return self.config.get("volume_dilatation", 0)
 
-    @lazy
+    @property
     def circuit(self):
         '''circuit referenced by config'''
-        from bluepy.circuit import Circuit
+        from bluepy import Circuit
         return Circuit(self.config['circuit_config'])
 
-    @lazy
+    @property
     def regions(self):
         '''regions referenced in config'''
         regions = list(it.chain.from_iterable(c[1] for c in self.config['module_grouping']))
         return regions
+
+    @property
+    def recipe_path(self):
+        '''get the specified recipe path'''
+        recipe_path = self.config['projections_recipe']
+        recipe_path = self._relative_to_config(self.config_path, recipe_path)
+        return recipe_path
 
     @lazy
     def recipe(self):
         '''MacroConnections recipe referenced in config'''
         from white_matter_projections import macro
 
-        recipe_path = self.config['projections_recipe']
-        recipe_path = self._relative_to_config(self.config_path, recipe_path)
-
-        with open(recipe_path) as fd:
+        with open(self.recipe_path) as fd:
             recipe = fd.read()
 
         recipe = macro.MacroConnections.load_recipe(
@@ -100,21 +114,21 @@ class Config(object):
             region_subregion_separation_format,
             subregion_translation)
 
-    @lazy
+    @property
     def atlas(self):
         '''atlas referenced in config'''
         atlas = voxelbrain.Atlas.open(self.config['atlas_url'],
                                       cache_dir=self.cache_dir)
         return atlas
 
-    @lazy
+    @property
     def cache_dir(self):
         '''get the cache path'''
         path = self.config['cache_dir']
         ensure_path(path)
         return path
 
-    @lazy
+    @property
     def delay_method(self):
         '''get the style of method, one of 'streamlines', 'direct', 'dive'
 
@@ -135,7 +149,7 @@ class Config(object):
             ret = self.atlas.load_region_map()
         return ret
 
-    @lazy
+    @property
     def region_layer_heights(self):
         '''calculate and cache layer heights from atlas to DataFrame'''
 
@@ -530,3 +544,39 @@ def get_acronym_volumes(acronyms, brain_regions, region_map):
         count = np.count_nonzero(np.isin(brain_regions.raw, list(ids)))
         ret.append((acronym, count * brain_regions.voxel_volume))
     return pd.DataFrame(ret, columns=['acronym', 'volume']).set_index('acronym')
+
+
+def generate_seed(*args):
+    '''stringify args, and make a 32bit seed out of it'''
+    m = hashlib.sha256()
+    for arg in args:
+        m.update(str(arg).encode('utf-8'))
+    seed = int(m.hexdigest()[:8], base=16)
+    return seed
+
+
+def choice(probabilities, rng):
+    '''Given an array of shape (N, M) of probabilities (not necessarily normalized)
+    returns an array of shape (N), with one element choosen from every row according
+    to the probabilities normalized on this row
+    '''
+
+    cum_distances = np.cumsum(probabilities, axis=1)
+    cum_distances = cum_distances / np.sum(probabilities, axis=1, keepdims=True)
+
+    rand_cutoff = rng.random((len(cum_distances), 1))
+
+    idx = np.argmax(rand_cutoff < cum_distances, axis=1)
+    return idx
+
+
+class ErrorCloseToZero(Exception):
+    '''Raised if normalizing if sum of probabilities is close to zero'''
+
+
+def normalize_probability(p):
+    """ Normalize vector of probabilities `p` so that sum(p) == 1. """
+    norm = np.sum(p)
+    if norm < 1e-7:
+        raise ErrorCloseToZero("Could not normalize almost-zero vector")
+    return p / norm

@@ -179,7 +179,7 @@ class PtypesGenerator(object):
             specified by the indices array.
     '''
 
-    def __init__(self, innervation_probabilities, interaction_matrix):
+    def __init__(self, innervation_probabilities, interaction_matrix, rng):
         '''Build the p-type generating tree.
 
         Note: innervation_probabilities is 1D array whose size matches
@@ -196,6 +196,7 @@ class PtypesGenerator(object):
         Args:
             innervation_probabilities(list): 1D array of float
             interaction_matrix(numpy.ndarray): 2D float matrix
+            rng(np.random.Generator): used for random number generation
         '''
         self.tree, self.source_id = _create_full_binary_tree(
             innervation_probabilities, interaction_matrix
@@ -203,6 +204,7 @@ class PtypesGenerator(object):
         # We shall remove superfluous edges. This will put the generating tree in
         # normal form and will make the random generator more efficient.
         self.tree = utils.contract_ineluctable_edges(self.tree)
+        self.rng = rng
 
     def generate_random_ptypes(self, number_of_ptypes):
         '''Generate the specidied number of p-types based on the tree model.
@@ -215,4 +217,4 @@ class PtypesGenerator(object):
             ptypes(list): list of ptypes. A p-type is a set of leave identifiers
                 which corresponds to a set of target region indices.
         '''
-        return utils.generate_random_ptypes(self.tree, self.source_id, number_of_ptypes)
+        return utils.generate_random_ptypes(self.tree, self.source_id, number_of_ptypes, self.rng)

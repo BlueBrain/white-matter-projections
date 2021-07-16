@@ -23,13 +23,14 @@ def is_leave(tree, node_id):
     return tree.out_degree[node_id] == 0
 
 
-def generate_random_ptype(tree, source_id):
+def generate_random_ptype(tree, source_id, rng):
     '''Generate a unique random p-type based on the tree model.
 
     Args:
         tree(networkx.DiGraph): directed rooted tree
         source_id(int): unique integer id of the source node
             from which a random axon is cast.
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         ptype(set): set of ids of the leaves reached by the axon,
@@ -45,7 +46,7 @@ def generate_random_ptype(tree, source_id):
         outward_edges = tree.out_edges(current_node)
         for edge in outward_edges:
             crossing_probability = tree.edges[edge]['crossing_probability']
-            if np.random.uniform() <= crossing_probability:
+            if rng.uniform() <= crossing_probability:
                 successor = edge[1]
                 if is_leave(tree, successor):
                     ptype.add(successor)
@@ -55,7 +56,7 @@ def generate_random_ptype(tree, source_id):
     return ptype
 
 
-def generate_random_ptypes(tree, source_id, number_of_ptypes):
+def generate_random_ptypes(tree, source_id, number_of_ptypes, rng):
     '''Generate the specidied number of p-types based on the tree model.
 
     Args:
@@ -63,12 +64,14 @@ def generate_random_ptypes(tree, source_id, number_of_ptypes):
         source_id(int): unique integer id of the source node
             from which random axons are cast.
         number_of_ptypes(int): number of p-types to be generated.
+        rng(np.random.Generator): used for random number generation
 
     Returns:
         ptypes(list): list of ptypes. A ptype is a set of leave identifiers,
             .i.e, a set of target region indices.
     '''
-    return [generate_random_ptype(tree, source_id) for _ in range(number_of_ptypes)]
+    return [generate_random_ptype(tree, source_id, rng)
+            for _ in range(number_of_ptypes)]
 
 
 def get_max_indices(matrix):

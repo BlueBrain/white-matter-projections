@@ -44,20 +44,21 @@ def test_generate_random_ptype():
     #  /\  /\
     # 0 1  2 3
 
+    rng = np.random
     # All edges with probability 1.0
     for edge in tree.edges:
         tree.edges[edge]['crossing_probability'] = 1.0
-    assert utils.generate_random_ptype(tree, source_id) == set([0, 1, 2, 3])
+    assert utils.generate_random_ptype(tree, source_id, rng) == set([0, 1, 2, 3])
 
     # The edge issued from the source has probability 0.0
     tree.edges[(source_id, 6)]['crossing_probability'] = 0.0
-    assert utils.generate_random_ptype(tree, source_id) == set([])
+    assert utils.generate_random_ptype(tree, source_id, rng) == set([])
 
     # All depth 1 edges have probability 0.0
     tree.edges[(7, 6)]['crossing_probability'] = 1.0
     tree.edges[(6, 4)]['crossing_probability'] = 0.0
     tree.edges[(6, 5)]['crossing_probability'] = 0.0
-    assert utils.generate_random_ptype(tree, source_id) == set([])
+    assert utils.generate_random_ptype(tree, source_id, rng) == set([])
 
     # All depth 2 edges have probability 0.0
     tree.edges[(6, 4)]['crossing_probability'] = 1.0
@@ -66,20 +67,20 @@ def test_generate_random_ptype():
     tree.edges[(4, 1)]['crossing_probability'] = 0.0
     tree.edges[(5, 2)]['crossing_probability'] = 0.0
     tree.edges[(5, 3)]['crossing_probability'] = 0.0
-    assert utils.generate_random_ptype(tree, source_id) == set([])
+    assert utils.generate_random_ptype(tree, source_id, rng) == set([])
 
     # Different patterns depending on each terminal edge assignment
     tree.edges[(4, 0)]['crossing_probability'] = 1.0
     tree.edges[(4, 1)]['crossing_probability'] = 0.0
     tree.edges[(5, 2)]['crossing_probability'] = 1.0
     tree.edges[(5, 3)]['crossing_probability'] = 0.0
-    assert utils.generate_random_ptype(tree, source_id) == set([0, 2])
+    assert utils.generate_random_ptype(tree, source_id, rng) == set([0, 2])
 
     tree.edges[(4, 0)]['crossing_probability'] = 0.0
     tree.edges[(4, 1)]['crossing_probability'] = 1.0
     tree.edges[(5, 2)]['crossing_probability'] = 0.0
     tree.edges[(5, 3)]['crossing_probability'] = 1.0
-    assert utils.generate_random_ptype(tree, source_id) == set([1, 3])
+    assert utils.generate_random_ptype(tree, source_id, rng) == set([1, 3])
 
 def test_generate_random_ptypes():
     # The seed below has been choosen so as to minimize the number of generated p-types
@@ -123,7 +124,7 @@ def test_generate_random_ptypes():
     ], dtype=np.float)
     number_of_leaves = 6
     number_of_ptypes = 41500
-    ptypes = utils.generate_random_ptypes(tree, source_id, number_of_ptypes)
+    ptypes = utils.generate_random_ptypes(tree, source_id, number_of_ptypes, np.random)
     actual_counts = np.zeros([number_of_leaves] * 2)
     for ptype in ptypes:
         for i in ptype:

@@ -363,6 +363,16 @@ class MacroConnections(object):
 
         return ret
 
+    @staticmethod
+    def cached_recipe_path(recipe_yaml, cache_dir):
+        '''return path of cached recipe'''
+        m = hashlib.sha256()
+        m.update(recipe_yaml.encode('utf-8'))
+        hexdigest = m.hexdigest()
+        path = os.path.join(cache_dir, MacroConnections.SERIALIZATION_NAME, hexdigest)
+
+        return path
+
     @classmethod
     def load_recipe(cls,
                     recipe_yaml,
@@ -382,15 +392,10 @@ class MacroConnections(object):
             instance of MacroConnections
         '''
         # pylint: disable=too-many-locals
-        m = hashlib.sha256()
-        m.update(recipe_yaml.encode('utf-8'))
-        hexdigest = m.hexdigest()
-
         if cache_dir is not None:
             try:
-                path = os.path.join(cache_dir, MacroConnections.SERIALIZATION_NAME, hexdigest)
+                path = cls.cached_recipe_path(recipe_yaml, cache_dir)
                 ret = cls._deserialize(path)
-                L.debug('Using serialized recipe from %s', path)
                 return ret
             except:  # noqa  # pylint: disable=bare-except
                 pass
@@ -415,7 +420,7 @@ class MacroConnections(object):
         ret.check_consistency()
 
         if cache_dir is not None:
-            path = os.path.join(cache_dir, MacroConnections.SERIALIZATION_NAME, hexdigest)
+            path = cls.cached_recipe_path(recipe_yaml, cache_dir)
             ret._serialize(path)  # pylint: disable=protected-access
             with open(os.path.join(path, 'recipe.yaml'), 'w') as fd:
                 fd.write(recipe_yaml)

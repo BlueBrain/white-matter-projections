@@ -107,8 +107,6 @@ List of regions that are ignored, and thus shouldn't throw errors if they exist 
                       ORBl4, ORBm4, ORBvl4, PERI4, PL4, RSPagl4, RSPv4,
                       ]
 
-
-
 region_subregion_translation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -122,16 +120,18 @@ To adapt/keep compatible recipes to various hierarchies; a series of translation
 
 .. code-block:: yaml
 
-    region_subregion_format: '@{region}{subregion}'
-    region_subregion_separation_format: '(?P<region>.*)(?P<subregion>\d+)'
-    subregion_translation: {l1: '1', l2: '2', l3: '3', l4: '4', l5: '5', l6: '6', }
+    region_subregion_translation:
+        region_subregion_format: '@{region}{subregion}'
+        region_subregion_separation_format: '(?P<region>.*)(?P<subregion>\d+)'
+        subregion_translation: {l1: '1', l2: '2', l3: '3', l4: '4', l5: '5', l6: '6', }
 
 Or:
 
 .. code-block:: yaml
 
-    region_subregion_format: '@{region};L{subregion}'
-    region_subregion_separation_format: '(?P<region>.*);L(?P<region>\d+))'
+    region_subregion_translation:
+        region_subregion_format: '@{region};L{subregion}'
+        region_subregion_separation_format: '(?P<region>.*);L(?P<region>\d+))'
 
 
 

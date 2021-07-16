@@ -8,7 +8,7 @@ import click
 import pandas as pd
 import numpy as np
 
-from white_matter_projections import utils
+from white_matter_projections import macro, micro, sampling, utils, write_output
 from white_matter_projections.app.utils import print_color, REQUIRED_PATH
 
 
@@ -25,12 +25,17 @@ def cmd(ctx, config, output):
     ctx.obj['output'] = output
     utils.ensure_path(output)
 
+    with open(ctx.obj['config'].recipe_path) as fd:
+        path = macro.MacroConnections.cached_recipe_path(fd.read(),
+                                                         ctx.obj['config'].cache_dir)
+        if os.path.exists(path):
+            L.debug('Using serialized recipe from %s', path)
+
 
 @cmd.command()
 @click.pass_context
 def allocate(ctx):
     '''Allocate source cell GIDS by region, and store them for use when assigning target GIDS'''
-    from white_matter_projections import micro
     config, output = ctx.obj['config'], ctx.obj['output']
 
     allocations_path = os.path.join(output, 'allocations.h5')
@@ -39,7 +44,7 @@ def allocate(ctx):
                     allocations_path, color='red')
         return
 
-    allocations = micro.allocate_projections(config.recipe, config.get_cells)
+    allocations = micro.allocate_projections(config.recipe, config.get_cells, config.rng)
 
     micro.save_allocations(allocations_path, allocations)
 
@@ -49,7 +54,6 @@ def allocate(ctx):
 @click.pass_context
 def calculate_compensation(ctx, side):
     '''Calculate density compensation for all projections'''
-    from white_matter_projections import sampling
     config, output = ctx.obj['config'], ctx.obj['output']
 
     compensation_path = sampling.get_compensation_path(output, side)
@@ -88,8 +92,6 @@ def calculate_compensation(ctx, side):
 @click.pass_context
 def sample_all(ctx, target_population, side):
     '''create and save segment sample regions for target_population'''
-    from white_matter_projections import sampling
-
     config, output = ctx.obj['config'], ctx.obj['output']
     index_base = config.config['indices']
     target_population = target_population  # keep linter happy
@@ -118,7 +120,6 @@ def sample_all(ctx, target_population, side):
 @click.pass_context
 def subsample(ctx, target_population, side, use_compensation, rank, max_rank):
     '''create candidate synapses from full set of segments created by sample_all'''
-    from white_matter_projections import sampling
     config, output = ctx.obj['config'], ctx.obj['output']
 
     sampling.subsample_per_target(
@@ -133,7 +134,6 @@ def subsample(ctx, target_population, side, use_compensation, rank, max_rank):
 @click.pass_context
 def assignment(ctx, target_population, side, reverse):
     '''assign sgids created in allocations with candidate synapses from subsample'''
-    from white_matter_projections import micro
     config, output = ctx.obj['config'], ctx.obj['output']
 
     join_cols = ['projection_name', 'source_population']
@@ -164,7 +164,6 @@ def assignment(ctx, target_population, side, reverse):
 @click.pass_context
 def concat_assignments(ctx, target_population, side):
     '''concatenate assignments'''
-    from white_matter_projections import micro
     projections = ctx.obj['config'].recipe.projections
 
     if target_population == 'all':
@@ -216,7 +215,6 @@ def concat_assignments(ctx, target_population, side):
 @click.pass_context
 def write_syn2(ctx, target_population, side):
     'write out syn2 synapse file for target_population and side'''
-    from white_matter_projections import micro, write_output
     config, output = ctx.obj['config'], ctx.obj['output']
 
     base_path = os.path.join(output, micro.ASSIGNMENT_PATH, side)
@@ -255,7 +253,7 @@ def write_syn2(ctx, target_population, side):
 @click.pass_context
 def write_streamline_mapping(ctx):
     '''write the streamline mapping for the viz team'''
-    from white_matter_projections import micro, streamlines
+    from white_matter_projections import streamlines
     output = ctx.obj['output']
     files = (glob(os.path.join(output, micro.ASSIGNMENT_PATH, 'left', '*_gid2row.feather')) +
              glob(os.path.join(output, micro.ASSIGNMENT_PATH, 'right', '*_gid2row.feather')))

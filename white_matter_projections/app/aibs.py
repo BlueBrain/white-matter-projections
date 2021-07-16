@@ -109,9 +109,14 @@ def cortical2flatmap(cortical_map,
     from white_matter_projections import cortical_mapping
     assert output.endswith('.nrrd'), 'Should produce an nrrd file'
 
-    regions = map(str, regions.split(','))
+    regions = list(map(str, regions.split(',')))
+
+    assert regions, "regions are empty"
+
+    print_color('Creating flatmap with regions: %s', regions)
 
     cortical_map_paths = cortical_mapping.CorticalMapParameters(
         cortical_map, brain_regions, hierarchy, center_line_2d, center_line_3d)
+
     ret = cortical_mapping.create_cortical_to_flatmap(cortical_map_paths, regions)
     ret.save_nrrd(output)

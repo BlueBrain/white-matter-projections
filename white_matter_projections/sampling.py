@@ -12,8 +12,6 @@ from scipy.spatial import KDTree
 
 from joblib import Parallel, delayed
 from neurom import NeuriteType
-from projectionizer import synapses
-from projectionizer.utils import ErrorCloseToZero, normalize_probability
 from white_matter_projections import utils, mapping, flat_mapping
 
 
@@ -58,6 +56,26 @@ def _ensure_only_segments_from_region(config, region, side, df):
     return df
 
 
+def _sample_with_flat_index(index_path, min_xyz, max_xyz):
+    '''use flat index to get segments within min_xyz, max_xyz'''
+    #  this is loaded late so that multiprocessing loads it outside of the main
+    #  python binary - at one point, this was necessary, as there was shared state
+    import libFLATIndex as FI  # pylint:disable=import-outside-toplevel
+    from bluepy.index import SegmentIndex
+    try:
+        index = FI.loadIndex(str(os.path.join(index_path, 'SEGMENT')))  # pylint: disable=no-member
+        min_xyz_ = tuple(map(float, min_xyz))
+        max_xyz_ = tuple(map(float, max_xyz))
+        segs_df = FI.numpy_windowQuery(index, *(min_xyz_ + max_xyz_))  # pylint: disable=no-member
+        segs_df = SegmentIndex._wrap_result(segs_df)  # pylint: disable=protected-access
+        FI.unLoadIndex(index)  # pylint: disable=no-member
+        del index
+    except Exception:  # pylint: disable=broad-except
+        return None
+
+    return segs_df.sort_values(segs_df.columns.tolist())
+
+
 def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
     '''for every voxel defined by the lower coordinate in min_xzys, gather segments
 
@@ -72,8 +90,7 @@ def _full_sample_worker(min_xyzs, index_path, voxel_dimensions):
     chunks = []
     for min_xyz in min_xyzs:
         max_xyz = min_xyz + voxel_dimensions
-        df = synapses._sample_with_flat_index(  # pylint: disable=protected-access
-            index_path, min_xyz, max_xyz)
+        df = _sample_with_flat_index(index_path, min_xyz, max_xyz)
 
         if df is None or len(df) == 0:
             continue
@@ -289,12 +306,16 @@ def sample_all(output, config, index_base, population, brain_regions, side, dila
 
         L.debug('Sampled %s[%s@%s] -> %d', row.region, row.subregion, side, len(df))
 
+        df.sort_values(['tgid', 'section_id', 'segment_id', 'segment_x1'],
+                       kind='stable',
+                       inplace=True)
+
         utils.write_frame(path, df)
 
 
 def load_all_samples(path, region_tgt):
     '''load samples for `region_tgt` from `path`, in parallel, separating into left/right'''
-    files = glob(os.path.join(path, SAMPLE_PATH, '%s_*.feather' % region_tgt))
+    files = sorted(glob(os.path.join(path, SAMPLE_PATH, '%s_*.feather' % region_tgt)))
     L.debug('load_all_samples: %s', files)
 
     work = []
@@ -319,29 +340,30 @@ def load_all_samples(path, region_tgt):
     return dict(ret)
 
 
-def _add_random_position_and_offset_worker(segments, output, sl):
+def _add_random_position_and_offset_worker(segments, output, sl, rng):
     '''Take start and end positions of `segments`, and create a random synapse position
 
     Args:
         segments(np.array Nx7): 0:3 starts, 3:6 ends, 6: segment_length
         output(np.array to write to): Nx4: :3 columns are XYZ position, 3 is the offset
         sl(slice): DataFrame input slice and output slice
+        rng(np.random.Generator): used for random number generation
 
-    Note: output is written modified
+    Note: `output` is written modified
     '''
     starts, ends, segment_length = segments[sl, 0:3], segments[sl, 3:6], segments[sl, 6]
-    alpha = np.random.random_sample((starts.shape[0], 1))
-    output[sl, :3] = alpha * starts + (1. - alpha) * ends
+    alpha = rng.random(size=(len(starts), 1))
+    output[sl, :3] = (1 - alpha) * starts + alpha * ends
     output[sl, 3] = alpha.ravel() * segment_length  # segment_offset
 
 
-def _add_random_position_and_offset(segments, chunk_size=1000000, n_jobs=-2):
+def _add_random_position_and_offset(segments, seed_sequence, chunk_size=1000000, n_jobs=-2):
     '''parallelize creating a synapse position on a segments
 
     Read _add_random_position_and_offset_worker for more info
     '''
     cols = SEGMENT_START_COLS + SEGMENT_END_COLS + ['segment_length']
-    data = segments[cols].values
+    data = segments[cols].to_numpy()
     slices = [slice(start, start + chunk_size)
               for start in range(0, len(segments), chunk_size)]
     output = np.empty((len(segments), 4), dtype=np.float32)
@@ -350,14 +372,16 @@ def _add_random_position_and_offset(segments, chunk_size=1000000, n_jobs=-2):
                  backend='threading',
                  # 'verbose': 60,
                  )
-    p(worker(data, output, sl) for sl in slices)
+    p(worker(data, output, sl, np.random.default_rng(seed))
+      for sl, seed in zip(slices, seed_sequence.spawn(len(slices)))
+      )
 
     syns = pd.DataFrame(output, columns=['x', 'y', 'z', 'segment_offset'])
     syns['segment_length'] = segments['segment_length'].values
     syns['afferent_section_type'] = segments['afferent_section_type'].values
 
     for c in ('section_id', 'segment_id', 'tgid', ):
-        syns[c] = segments[c].values
+        syns[c] = segments[c].to_numpy()
 
     return syns
 
@@ -475,14 +499,17 @@ def calculate_constrained_volume(config_path, brain_regions, region_id, vertices
     return count * brain_regions.voxel_volume
 
 
-def _pick_candidate_synapse_locations(output,
-                                      config,
-                                      segment_samples,
-                                      projection_name,
-                                      side,
-                                      mirrored_vertices,
-                                      syns_count,
-                                      use_compensation):
+def _pick_candidate_synapse_locations(  # pylint: disable=too-many-arguments
+    output,
+    config,
+    segment_samples,
+    projection_name,
+    side,
+    mirrored_vertices,
+    syns_count,
+    use_compensation,
+    seed
+):
     '''Pick potential synapse locations
 
     From `segment_samples`, get `syns_count` unique locations where synapses can be placed
@@ -503,27 +530,31 @@ def _pick_candidate_synapse_locations(output,
                                           vertices=mirrored_vertices,
                                           )
 
-    return _pick_candidate_synapse_locations_by_function(mask_function, segment_samples, syns_count)
+    return _pick_candidate_synapse_locations_by_function(
+        mask_function, segment_samples, syns_count, seed=seed)
 
 
 def _pick_candidate_synapse_locations_by_function(mask_function,
                                                   segment_samples,
                                                   syns_count,
                                                   min_to_pick=25000,
-                                                  times=20):
-    '''Repeatedly call `mask_function` to pick synapases, until syns_count is met'''
+                                                  times=20,
+                                                  seed=0):
+    '''Repeatedly call `mask_function` to pick synpases, until syns_count is met'''
     ret = []
     to_pick = syns_count
-    for i in range(times):
+    seed_sequences = np.random.SeedSequence(seed)
+    for i, seed_sequence in zip(range(times), seed_sequences.spawn(times)):
         L.debug('_pick_candidate_synapse_locations_by_function try %d, to go %d', i, to_pick)
         L.debug('    start add random: %d', len(segment_samples))
-        syns = _add_random_position_and_offset(segment_samples)
+        syns = _add_random_position_and_offset(segment_samples, seed_sequence)
         L.debug('    end random')
 
         # when we are getting close to the count we want picked, oversample to make it faster
         # and thus we don't need to traverse the loop many times just to get the last few
         L.debug('    start picking %d', max(min_to_pick, to_pick))
-        picked = _pick_syns(syns, count=max(min_to_pick, to_pick))
+        rng = np.random.default_rng(seed_sequence.spawn(1)[0])
+        picked = _pick_syns(syns, count=max(min_to_pick, to_pick), rng=rng)
 
         if picked is None:
             return None
@@ -537,7 +568,7 @@ def _pick_candidate_synapse_locations_by_function(mask_function,
         syns = syns[mask]
 
         if len(syns) > to_pick:
-            syns = syns.sample(to_pick)
+            syns = syns.sample(to_pick, random_state=rng.bit_generator)
 
         ret.append(syns)
         to_pick -= len(syns)
@@ -556,7 +587,9 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
     densities,
     hemisphere,
     side,
-    segment_samples, output
+    segment_samples,
+    output,
+    seed
 ):
     '''Given all region's `segment_samples`, pick segments that satisfy the
     desired density in constrained by `vertices`
@@ -571,6 +604,7 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
         side(str): either 'left' or 'right'
         segment_samples(dict of 'left'/'right'): full sample of regions's segments
         output(path): where to output files
+        seed(int): seed do use
 
     Returns:
         number of synapses subsampled
@@ -594,7 +628,7 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
     densities = densities[['subregion_tgt', 'id_tgt', 'density']].drop_duplicates()
     groupby = densities.groupby(['subregion_tgt', 'id_tgt']).density.sum().iteritems()
     all_syns, zero_volume = [], []
-    for (layer, id_tgt), density in groupby:
+    for i, ((layer, id_tgt), density) in enumerate(groupby):
         volume = calculate_constrained_volume(
             config.config_path, brain_regions, id_tgt, mirrored_vertices)
 
@@ -612,7 +646,8 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
             side,
             mirrored_vertices,
             syns_count=int(volume * density),
-            use_compensation=config.config.get('compensation', False))
+            use_compensation=config.config.get('compensation', False),
+            seed=seed + i)
 
         if syns is not None:
             L.debug('Got %d syns', len(syns))
@@ -637,16 +672,16 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
     return len(all_syns)
 
 
-def _pick_syns(syns, count):
+def _pick_syns(syns, count, rng):
     '''pick (with replacement) `count` syns, using syns.segment_length as weighting'''
     prob_density = syns.segment_length.values.astype(np.float64)
     try:
-        prob_density = normalize_probability(prob_density)
-    except ErrorCloseToZero:
+        prob_density = utils.normalize_probability(prob_density)
+    except utils.ErrorCloseToZero:
         L.warning('ErrorCloseToZero %s', prob_density.shape)
         return None
 
-    picked = np.random.choice(len(syns), size=count, replace=True, p=prob_density)
+    picked = rng.choice(len(syns), size=count, replace=True, p=prob_density)
     return picked
 
 
@@ -711,12 +746,14 @@ def subsample_per_target(output,
                 L.debug('Compensation: %s', comp)
                 updated_density.density *= comp
 
-            L.debug('Subsampling for %s[%s][%s] (%s of %s)',
-                    projection_name, side, region_tgt, i + 1, len(gb))
+            seed = utils.generate_seed(source_population, projection_name, hemisphere)
+
+            L.debug('Subsampling for %s[%s][%s] (%s of %s), seed: %s',
+                    projection_name, side, region_tgt, i + 1, len(gb), seed)
             _subsample_per_source(config, tgt_vertices,
                                   projection_name, region_tgt,
                                   updated_density, hemisphere, side,
-                                  segment_samples, output)
+                                  segment_samples, output, seed)
 
 
 def calculate_compensation(config, projection_name, side, sample_size=10000):
@@ -748,7 +785,10 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
     else:
         tgt_locations = right_cells
 
-    tgt_locations = tgt_locations.sample(sample_size)[utils.XYZ].to_numpy()
+    rng = np.random.default_rng(
+        seed=config.seed + utils.generate_seed(source_population, projection_name, hemisphere))
+    tgt_locations = tgt_locations.sample(sample_size, random_state=rng.bit_generator)
+    tgt_locations = tgt_locations[utils.XYZ].to_numpy()
 
     src_ids = config.recipe.populations.set_index('population').loc[source_population]['id']
 
