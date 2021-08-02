@@ -42,11 +42,12 @@ def _ensure_only_flatmap_segments(config, segments, tgt_base_system):
     return segments
 
 
-def _ensure_only_segments_from_region(config, region, side, df):
+def _ensure_only_segments_from_region(config, base_system, region, side, df):
     '''Check that the segments in `df` are only from region@side'''
     region = region  # trick pylint
     cells = config.get_cells().query('region == @region')
-    cells = utils.partition_left_right(cells, side, config.flat_map.center_line_3d)
+    cells = utils.partition_left_right(
+        cells, side, config.flat_map(base_system).center_line_3d)
 
     orig_len = len(df)
     df = df[np.isin(df.tgid.to_numpy(), cells.index.to_numpy())]
@@ -181,7 +182,7 @@ def _full_sample_parallel(  # pylint: disable=too-many-arguments
 
     if(not _is_split_index(index_path, region, side) and
        config.config.get('only_segments_from_region', False)):
-        df = _ensure_only_segments_from_region(config, region, side, df)
+        df = _ensure_only_segments_from_region(config, base_system, region, side, df)
 
     df = _ensure_only_flatmap_segments(config, df, base_system)
 

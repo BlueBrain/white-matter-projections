@@ -474,6 +474,17 @@ def _parse_populations(populations, region_map, region_subregion_translation):
     return pop_cat, populations
 
 
+def _read_mapping_coordinate_system(flat_map_names, node):
+    '''read base_system and vertices from `node`, make sure they exist in flat_map_names'''
+    assert node['base_system'] in flat_map_names, \
+        f'Currently only handle {flat_map_names}, but {node["base_system"]} is not one of them'
+
+    base_system = node['base_system']
+    vertices = np.array(zip(node['x'], node['y'],))
+
+    return base_system, vertices
+
+
 def _parse_projections(projections, pop_cat, flat_map_names):
     '''parse_projections
 
@@ -489,21 +500,13 @@ def _parse_projections(projections, pop_cat, flat_map_names):
             connection_mapping: ref. connection_mapping stanza
             synapse_type_name: ref. to synapse_types stanza
             synapse_type_fraction: modifier to above type
+
         dict of projections_mapping keyed on: population_source -> projection_name ->
             {vertices -> np.array,
             target_population -> name,
             flat_map_name: name of flat map to use}
-
     '''
     # pylint: disable=too-many-locals
-    def get_vertices(node):
-        ''' Note: the coordinate system uses x for columns, and y for rows, but within the code
-        the normal convention is used: 0th axis is rows (ie: x), and 1th is columns
-        '''
-        vertices = np.array(zip(node['mapping_coordinate_system']['y'],
-                                node['mapping_coordinate_system']['x'],))
-        return vertices
-
     data = []
     projections_mapping = defaultdict(dict)
     missing_targets = []
@@ -515,10 +518,8 @@ def _parse_projections(projections, pop_cat, flat_map_names):
         source = proj['source']
         source_mapping = projections_mapping[source]
 
-        assert proj['mapping_coordinate_system']['base_system'] in flat_map_names, \
-            f'Currently only handle {flat_map_names}, but {base_system} is not one of them'
-
-        source_mapping['base_system'] = proj['mapping_coordinate_system']['base_system']
+        source_mapping['base_system'], source_mapping['vertices'] = _read_mapping_coordinate_system(
+            flat_map_names, proj['mapping_coordinate_system'])
 
         for target in proj['targets']:
             if target['source_filters']:
@@ -531,16 +532,15 @@ def _parse_projections(projections, pop_cat, flat_map_names):
 
             mapping = target['presynaptic_mapping']
 
-            base_system = mapping['mapping_coordinate_system']['base_system']
-            assert base_system in flat_map_names, \
-                f'Currently only handle {flat_map_names}, but {base_system} is not one of them'
+            base_system, vertices = _read_mapping_coordinate_system(
+                flat_map_names, mapping['mapping_coordinate_system'])
 
             assert projection_name not in source_mapping, \
                 'Duplicate projection target: %s -> %s' % (source, projection_name)
 
             source_mapping[projection_name] = {
                 'variance': mapping['mapping_variance'],
-                'vertices': get_vertices(mapping),
+                'vertices': vertices,
                 'target_population': target['population'],
                 'base_system': base_system,
             }
@@ -561,8 +561,6 @@ def _parse_projections(projections, pop_cat, flat_map_names):
                 synapse_type_name,
                 synapse_type_fraction,
             ))
-
-        source_mapping['vertices'] = get_vertices(proj)
 
     columns = ['projection_name', 'source_population', 'target_population',
                'hemisphere', 'target_density', 'target_layer_profile_name',

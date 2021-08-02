@@ -27,8 +27,6 @@ def _make_mock_config():
     projection.source_population = 'source_population0'
     config.recipe.projections_mapping = test_utils.fake_projection_mapping()
 
-    config.flat_map.center_line_3d = 10.
-
     config.get_cells.return_value = pd.DataFrame(
         {'region': ['region0', 'region1', 'region0', 'region1'],
          'z': [1, 1, 20, 20],
@@ -74,7 +72,7 @@ def test__ensure_only_segments_from_region():
     region, side = 'region0', 'right'
     df = pd.DataFrame({'tgid': [10, 20, 30, 40],})
 
-    ret = sampling._ensure_only_segments_from_region(config, region, side, df)
+    ret = sampling._ensure_only_segments_from_region(config, 'base_system0', region, side, df)
     assert_allclose(ret.tgid.to_numpy(), [30])
 
 

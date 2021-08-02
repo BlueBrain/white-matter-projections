@@ -25,8 +25,8 @@ class FlatmapPainter:
         self.axs = dict()
 
         base_systems = config.config['flat_mapping']
-        axs = utils.ensure_iter(fig.subplots(nrows=len(base_systems), ncols=1, sharex=True))
-        for base_system, ax in zip(base_systems, axs):
+        axes = fig.subplots(nrows=len(base_systems), ncols=1, sharex=True)
+        for base_system, ax in zip(base_systems, utils.ensure_iter(axes)):
             self.flatmaps[base_system] = config.flat_map(base_system)
             L.debug('Loading %s[%s]', base_system, self.flatmaps[base_system].shape)
 

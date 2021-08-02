@@ -544,7 +544,7 @@ def get_acronym_volumes(acronyms, brain_regions, region_map, midline, side):
     '''
     assert side in SIDES, f'unknown: {side}'
     raw = brain_regions.raw
-    midline_idx = brain_regions.positions_to_indices([[0, 0, midline]])[0][Z]
+    midline_idx = brain_regions.positions_to_indices([[0., 0., float(midline)]])[0][Z]
     if side == 'left':
         raw = raw[:, :, :midline_idx]
     else:
@@ -588,7 +588,7 @@ class ErrorCloseToZero(Exception):
 
 
 def normalize_probability(p):
-    """ Normalize vector of probabilities `p` so that sum(p) == 1. """
+    ''' Normalize vector of probabilities `p` so that sum(p) == 1. '''
     norm = np.sum(p)
     if norm < 1e-7:
         raise ErrorCloseToZero("Could not normalize almost-zero vector")
