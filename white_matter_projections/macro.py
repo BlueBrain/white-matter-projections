@@ -89,7 +89,8 @@ class MacroConnections(object):
                               set(projection_populations.target_population))
         populations = set(self.populations.population)
         missing_populations = needed_populations - populations
-        assert not missing_populations, 'Missing %s' % missing_populations
+
+        assert not missing_populations, f'Missing missing_populations: {missing_populations}'
 
         # ...MAYBE removes populations if no p-ptypes reference them,
         # however, for the connectivity matrix, maybe we want them?
@@ -577,6 +578,11 @@ def _parse_projections(projections, pop_cat, flat_map_names):
 
     if missing_targets:
         L.warning('Sources %s do not have any associated targets', missing_targets)
+
+    mask = projections.isnull().any(axis=1)
+    if np.any(mask):
+        L.warning('Dropping projections:\n%s', projections[mask])
+        projections = projections[~mask]
 
     return projections, dict(projections_mapping)
 

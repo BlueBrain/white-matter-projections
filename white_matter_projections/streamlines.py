@@ -33,12 +33,12 @@ def get_region_centroid(flat_map, region, side):
     ids = list(flat_map.region_map.find(region, 'acronym', with_descendants=True))
     center_line = int(flat_map.center_line_3d / flat_map.brain_regions.shape[Z])
 
+    assert side in utils.SIDES, f'unknown: {side}'
     if side == 'right':
         locations = flat_map.brain_regions.raw[:, :, center_line:]
         locations = np.isin(locations, ids)
         locations = (0, 0, center_line) + np.array(np.nonzero(locations)).T
     else:
-        assert side == 'left'
         locations = flat_map.brain_regions.raw[:, :, :center_line]
         locations = np.isin(locations, ids)
         locations = np.array(np.nonzero(locations)).T

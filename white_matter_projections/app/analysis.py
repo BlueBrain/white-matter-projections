@@ -44,7 +44,7 @@ def flat_map(ctx, regions):
 
 @cmd.command()
 @click.option('-n', '--name', 'projection_name')
-@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
 def calculate_compensation(ctx, projection_name, side):
     '''Display the result of using the 'compensation' method'''
@@ -68,7 +68,7 @@ def calculate_compensation(ctx, projection_name, side):
 
 @cmd.command()
 @click.option('-n', '--name', 'projection_name')
-@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
 def projection(ctx, projection_name, side):
     '''plot all and used source locations for `projection_name` and `side`'''
@@ -129,7 +129,7 @@ def allocation_stats(ctx, population):
 
 @cmd.command()
 @click.option('-n', '--name', 'projection_name')
-@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
 def triangle_map(ctx, projection_name, side):
     '''plot projections from `projection_name` and `side`'''
@@ -142,28 +142,36 @@ def triangle_map(ctx, projection_name, side):
         painter.draw_flat_map_in_colour(regions='all')
         painter.draw_triangle_map(projection_name, side)
 
-    print_color('Green triangle: Source region\n'
-                'Yellow triangle: Target region'
+    print_color('Green triangle: source region\n'
+                '   Blue points: source sampled points\n'
+                'Yellow triangle: Target region\n'
+                '   Yellow points: source points mapped to target region\n'
                 )
 
 
 @cmd.command()
 @click.option('-n', '--name', 'projection_name')
-@click.option('-s', '--side', type=click.Choice(utils.SIDES))
+@click.option('-s', '--side', type=click.Choice(utils.SIDES), required=True)
 @click.pass_context
 def assignment_validation(ctx, projection_name, side):
     '''Compare the achieved density post assignment to the desired density'''
-    from white_matter_projections import micro
+    from white_matter_projections import mapping, micro
     config, output = ctx.obj['config'], ctx.obj['output']
 
-    with open(config.atlas.fetch_hierarchy(), 'r') as fd:
+    tgt_base_system = mapping.base_system_from_projection(
+        config,
+        config.recipe.get_projection(projection_name).source_population,
+        projection_name)
+    flat_map = config.flat_map(tgt_base_system)  # pylint: disable=redefined-outer-name
+
+    with open(flat_map.hierarchy_path, 'r') as fd:
         df = utils.hierarchy_2_df(json.load(fd))
 
-    brain_regions = config.atlas.load_data('brain_regions')
-
-    path = os.path.join(output, micro.ASSIGNMENT_PATH, side, '%s.feather' % projection_name)
-    new = utils.read_frame(path)
-    new['region_id'] = brain_regions.lookup(new[utils.XYZ].to_numpy())
+    new = utils.read_frame(os.path.join(output,
+                                        micro.ASSIGNMENT_PATH,
+                                        side,
+                                        '%s.feather' % projection_name))
+    new['region_id'] = flat_map.brain_regions.lookup(new[utils.XYZ].to_numpy())
     new = new.join(df.acronym, on='region_id')
 
     densities = config.recipe.calculate_densities(
@@ -172,16 +180,18 @@ def assignment_validation(ctx, projection_name, side):
 
     region_format = config.region_subregion_translation.region_subregion_format
     densities = densities.query('projection_name == @projection_name')
-    densities = densities[['region_tgt', 'subregion_tgt', 'density']].copy()
+    densities = densities[['region_tgt', 'subregion_tgt', 'density']].drop_duplicates().copy()
     densities['acronym'] = densities.apply(
         lambda r: region_format.format(region=r.region_tgt, subregion=r.subregion_tgt).lstrip('@'),
         axis=1)
 
-    region_volumes = utils.get_acronym_volumes(list(densities.acronym.unique()),
-                                               brain_regions,
-                                               config.atlas.load_region_map())
+    volumes = utils.get_acronym_volumes(list(densities.acronym.unique()),
+                                        flat_map.brain_regions,
+                                        flat_map.region_map,
+                                        flat_map.center_line_3d,
+                                        side)
 
-    volumes = (new.acronym.value_counts() / region_volumes.volume)
+    volumes = (new.acronym.value_counts() / volumes.volume)
     volumes.name = 'desired_density'
     densities = densities.join(volumes, on='acronym')
     densities['absolute_difference'] = np.abs(

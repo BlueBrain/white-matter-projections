@@ -455,7 +455,11 @@ def get_gids_by_population(populations, get_cells, population):
         population_filter = population.population_filter
 
     #  Due to the cells dataframe contaning numeric layers, need to convert to int
-    subregion = [int(s[0]) for s in subregion]
+    subregion = [s for s in subregion if s]
+    try:
+        subregion = [int(s[0]) for s in subregion]
+    except Exception as e:  # noqa
+        raise ValueError(f'Non numeric layer names: {subregion}') from e
 
     cells = get_cells(population_filter)
 
@@ -766,6 +770,8 @@ def assignment(output,
         reverse(bool): whether to reverse the order of assignment
     '''
     # pylint: disable=too-many-locals
+    assert side in utils.SIDES, f'unknown side: {side}'
+
     if config.delay_method == 'streamlines':
         streamline_metadata = streamlines.load(output, only_metadata=True)
 

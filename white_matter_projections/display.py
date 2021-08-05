@@ -25,8 +25,8 @@ class FlatmapPainter:
         self.axs = dict()
 
         base_systems = config.config['flat_mapping']
-        for base_system, ax in zip(base_systems,
-                                   fig.subplots(nrows=len(base_systems), ncols=1, sharex=True)):
+        axs = utils.ensure_iter(fig.subplots(nrows=len(base_systems), ncols=1, sharex=True))
+        for base_system, ax in zip(base_systems, axs):
             self.flatmaps[base_system] = config.flat_map(base_system)
             L.debug('Loading %s[%s]', base_system, self.flatmaps[base_system].shape)
 
@@ -72,7 +72,8 @@ class FlatmapPainter:
             _draw_region_outlines(ax,
                                   flat_map.region_map,
                                   flat_region_id,
-                                  regions)
+                                  regions,
+                                  center_line_2d=self.config.flat_map(base_system).center_line_2d)
 
     def plot_source_region_triangles(self, regions='all'):
         '''draw all source barycentric triangles
@@ -99,7 +100,7 @@ class FlatmapPainter:
         '''for `projection_name`, plot the target synapse locations'''
         # pylint: disable=too-many-locals
         hemisphere = self.config.recipe.get_projection(projection_name).hemisphere
-        mirror = utils.is_mirror(side, hemisphere)
+        mirrored = utils.is_mirror(side, hemisphere)
 
         source_population, all_sgids = \
             allocations.loc[projection_name][['source_population', 'sgids']]
@@ -133,16 +134,16 @@ class FlatmapPainter:
                                    color=src_color,
                                    alpha=alpha)
 
-            uvs = src_mapper.map_flat_to_flat(source_population, projection_name, uvs, mirror)
+            uvs = src_mapper.map_flat_to_flat(source_population, projection_name, uvs, mirrored)
             uvs = uvs[flat_mapping.FlatMap.mask_in_2d_flatmap(uvs), :]
 
             # Note: Y/X are reversed to keep the same perspective as plt.imshow
             tgt_ax.scatter(
                 uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=alpha, color=dst_color)
 
-        self.draw_mapping_triangles(mirror, source_population, projection_name)
+        self.draw_mapping_triangles(mirrored, source_population, projection_name)
 
-    def draw_mapping_triangles(self, mirror, source_population, projection_name):
+    def draw_mapping_triangles(self, mirrored, source_population, projection_name):
         '''draw the source and target mapping triangles'''
         src_base_system = mapping.base_system_from_projection(self.config, source_population)
         tgt_base_system = mapping.base_system_from_projection(self.config,
@@ -154,7 +155,7 @@ class FlatmapPainter:
         projections_mapping = self.config.recipe.projections_mapping[source_population]
         src_verts = projections_mapping['vertices']
         tgt_verts = projections_mapping[projection_name]['vertices']
-        if mirror:
+        if mirrored:
             src_flatmap = self.config.flat_map(src_base_system)
             tgt_flatmap = self.config.flat_map(tgt_base_system)
             src_verts = utils.mirror_vertices_y(src_verts, src_flatmap.center_line_2d)
@@ -167,7 +168,7 @@ class FlatmapPainter:
         '''for `projection_name`, plot the target synapse locations'''
         # pylint: disable=too-many-locals
         projection = self.config.recipe.get_projection(projection_name)
-        mirror = utils.is_mirror(side, projection.hemisphere)
+        mirrored = utils.is_mirror(side, projection.hemisphere)
 
         # XXX try w/ one that has multiple source pops!
         colors = it.cycle((('red', 'green',), ('blue', 'yellow',)))
@@ -186,10 +187,18 @@ class FlatmapPainter:
 
             xyz = np.nonzero(src_mapper.flat_map.brain_regions.raw == src_id)
             xyz = src_mapper.flat_map.brain_regions.indices_to_positions(np.array(xyz).T)
+
+            # XXX: this is like _calculate_compensation, unify????
+            center_line_3d = src_mapper.flat_map.center_line_3d
+            if mirrored:
+                xyz = xyz[xyz[:, utils.Z] < center_line_3d]
+            else:
+                xyz = xyz[xyz[:, utils.Z] > center_line_3d]
+
             uvs = plot_xyz_to_flat(src_ax, src_mapper, xyz, color=src_color, alpha=1)
 
             uvs = src_mapper.map_flat_to_flat(
-                projection.source_population, projection_name, uvs, mirror)
+                projection.source_population, projection_name, uvs, mirrored)
             uvs = uvs[flat_mapping.FlatMap.mask_in_2d_flatmap(uvs), :]
 
             # Note: Y/X are reversed to keep the same perspective as plt.imshow
@@ -197,7 +206,7 @@ class FlatmapPainter:
                 uvs[:, utils.Y], uvs[:, utils.X], marker='.', s=2, alpha=1, color=dst_color)
 
             # XXX: needed? if the multiple source pops exist???
-            self.draw_mapping_triangles(mirror, source_population, projection_name)
+            self.draw_mapping_triangles(mirrored, source_population, projection_name)
 
     def plot_compensation(self, projection_name, side, size=10):
         '''Display the result of using the 'compensation' method'''
@@ -330,7 +339,7 @@ def plot_xyz_to_flat(ax, mapper, xyz, color='black', alpha=0.05):
     return uvs
 
 
-def _draw_region_outlines(ax, region_map, flat_id, regions, labels='all'):
+def _draw_region_outlines(ax, region_map, flat_id, regions, center_line_2d=0, labels='all'):
     '''draws the outlines of the specified regions
 
     Args:
@@ -338,6 +347,7 @@ def _draw_region_outlines(ax, region_map, flat_id, regions, labels='all'):
         region_map: voxcell.region_map
         flat_id(np.array): 2D array with the all ids to be potentially outlined
         regions(list of region names or 'all'): which regions are outlined
+        center_line_2d(int): if two hemispheres, the location of the mirroring point
         labels(list of region names or 'all'): which regions have their names drawn
     '''
     if labels == 'all':
@@ -356,6 +366,7 @@ def _draw_region_outlines(ax, region_map, flat_id, regions, labels='all'):
 
         if region in labels:
             idx = np.array(np.nonzero(mask)).T
+            idx = idx[center_line_2d < idx[:, 1]]
             x, y = np.mean(idx, axis=0)
 
             ax.text(y, x, region,  # note inverse index

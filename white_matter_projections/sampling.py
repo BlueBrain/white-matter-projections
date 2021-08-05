@@ -655,11 +655,6 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
         L.info('Already subsampled: %s', path)
         return 0
 
-    mirrored_vertices = target_vertices.copy()
-    if utils.is_mirror(side, hemisphere):
-        center_line = config.flat_map.center_line_2d
-        mirrored_vertices = utils.mirror_vertices_y(mirrored_vertices, center_line)
-
     # { ugly hack: store base system on config.recipe.projections?
     tgt_base_system = {v['base_system']
                        for vv in config.recipe.projections_mapping.values()
@@ -668,6 +663,12 @@ def _subsample_per_source(  # pylint: disable=too-many-arguments
     assert len(tgt_base_system) == 1, f'{tgt_base_system} has too many values'
     tgt_base_system = next(iter(tgt_base_system))
     # }
+
+    mirrored_vertices = target_vertices.copy()
+    if utils.is_mirror(side, hemisphere):
+        mirrored_vertices = utils.mirror_vertices_y(
+            mirrored_vertices,
+            config.flat_map(tgt_base_system).center_line_2d)
 
     densities = densities[['subregion_tgt', 'id_tgt', 'density']].drop_duplicates()
     groupby = densities.groupby(['subregion_tgt', 'id_tgt']).density.sum().iteritems()
@@ -811,7 +812,6 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
         side: 'left' or 'right'
         sample_size(int=10000): how big the sample size is
 
-
     As discussed in: https://bbpteam.epfl.ch/project/issues/browse/BBPP82-62
     and in doc/source/concepts.rst
     '''
@@ -834,6 +834,7 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
         config.flat_map(tgt_base_system).center_line_3d
     )
 
+    assert side in utils.SIDES, f'unknown: {side}'
     if side == 'left':
         tgt_locations = left_cells
     else:
@@ -859,6 +860,19 @@ def calculate_compensation(config, projection_name, side, sample_size=10000):
                                    source_population,
                                    projection_name
                                    )
+
+
+def compute_compensation_parallel(config, projection_names, side):
+    '''compute compensation in a parallelized manor'''
+    worker = delayed(calculate_compensation)
+    p = Parallel(n_jobs=-2,
+                 verbose=150,
+                 )
+    res = zip(projection_names,
+              p(worker(config, projection_name, side)
+                for projection_name in projection_names)
+              )
+    return res
 
 
 def _get_projection_sigma(config, source_population, projection_name):

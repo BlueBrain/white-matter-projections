@@ -43,6 +43,7 @@ def app(ctx, verbose, interactive_matplotlib, plot_format):
         @contextmanager
         def figure(name):
             '''get a figure'''
+            logging.getLogger('matplotlib.font_manager').disabled = True
             plt.close('all')
             fig = plt.gcf()
             fig.set_size_inches(20, 20)

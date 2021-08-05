@@ -267,9 +267,21 @@ def test_hierarchy_2_df():
 
 def test_get_acronym_volumes():
     brain_regions, region_map = test_utils.fake_brain_regions()
-    ret = utils.get_acronym_volumes(['one'], brain_regions, region_map)
+
+    ret = utils.get_acronym_volumes(['one'], brain_regions, region_map, 4, 'left')
     eq_(ret.loc['one'].volume, 14.)
-    ret = utils.get_acronym_volumes(['one', 'two', 'twenty', 'thirty'], brain_regions, region_map)
+
+    ret = utils.get_acronym_volumes(['one'], brain_regions, region_map, 2, 'left')
+    eq_(ret.loc['one'].volume, 10.)
+
+    ret = utils.get_acronym_volumes(['one'], brain_regions, region_map, 2, 'right')
+    eq_(ret.loc['one'].volume, 4.)
+
+    ret = utils.get_acronym_volumes(['one', 'two', 'twenty', 'thirty'],
+                                    brain_regions,
+                                    region_map,
+                                    4,
+                                    'left')
     eq_(len(ret), 4)
     eq_(ret.loc['one'].volume, 14.)
     eq_(ret.loc['two'].volume, 10.)

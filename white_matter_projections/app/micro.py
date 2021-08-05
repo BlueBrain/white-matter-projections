@@ -67,13 +67,9 @@ def calculate_compensation(ctx, side):
     projection_names = config.recipe.projections.projection_name.to_list()
 
     compensation = []
-    for projection_name in projection_names:
-        L.debug('Doing compensation for %s[%s]', projection_name, side)
-        _, src_uvs_mapped, _, within_cutoff = sampling.calculate_compensation(config,
-                                                                              projection_name,
-                                                                              side)
+    res = sampling.compute_compensation_parallel(config, projection_names, side)
+    for projection_name, (_, src_uvs_mapped, _, within_cutoff) in res:
         compensation.append((side, np.count_nonzero(within_cutoff), len(within_cutoff)))
-
         df = pd.DataFrame(src_uvs_mapped, columns=['u', 'v'])
         df.to_csv(sampling.get_compensation_src_uvs_path(output, side, projection_name),
                   index=False)

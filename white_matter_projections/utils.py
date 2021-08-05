@@ -495,6 +495,8 @@ def is_mirror(side, hemisphere):
 
     Same logic for 'left'
     '''
+
+    assert side in SIDES, f'unknown: {side}'
     return ((side == 'right' and hemisphere == 'contra') or
             (side == 'left' and hemisphere == 'ipsi'))
 
@@ -534,17 +536,27 @@ def hierarchy_2_df(content):
     return ret.set_index('id')
 
 
-def get_acronym_volumes(acronyms, brain_regions, region_map):
-    '''
+def get_acronym_volumes(acronyms, brain_regions, region_map, midline, side):
+    ''' get the volume that is occupied by `acronyms` in the brain_regions
+
     Returns:
         pd.DataFrame with index `acronyms` with values for `volume`
     '''
+    assert side in SIDES, f'unknown: {side}'
+    raw = brain_regions.raw
+    midline_idx = brain_regions.positions_to_indices([[0, 0, midline]])[0][Z]
+    if side == 'left':
+        raw = raw[:, :, :midline_idx]
+    else:
+        raw = raw[:, :, midline_idx:]
+
     ret = []
     for acronym in acronyms:
         ids = region_map.find(acronym, 'acronym', with_descendants=True)
-        count = np.count_nonzero(np.isin(brain_regions.raw, list(ids)))
+        count = np.count_nonzero(np.isin(raw, list(ids)))
         ret.append((acronym, count * brain_regions.voxel_volume))
-    return pd.DataFrame(ret, columns=['acronym', 'volume']).set_index('acronym')
+    ret = pd.DataFrame(ret, columns=['acronym', 'volume']).set_index('acronym')
+    return ret
 
 
 def generate_seed(*args):
@@ -581,3 +593,11 @@ def normalize_probability(p):
     if norm < 1e-7:
         raise ErrorCloseToZero("Could not normalize almost-zero vector")
     return p / norm
+
+
+def ensure_iter(v):
+    '''ibid'''
+    if isinstance(v, collections.abc.Iterable):
+        return v
+    else:
+        return (v, )
