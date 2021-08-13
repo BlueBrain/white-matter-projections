@@ -86,7 +86,7 @@ def _serialize_allocations(h5, allocations):
     for source_population, allocation in allocations.items():
         grp = h5.create_group(source_population)
         for projection_name, gids in allocation.items():
-            grp.create_dataset(projection_name, data=gids, dtype='i')
+            grp.create_dataset(projection_name, data=np.sort(gids), dtype='i')
 
 
 def transpose_allocations(allocations, projections_mapping):
@@ -658,9 +658,9 @@ def assign_groups(src_flat, tgt_flat, sigma, closest_count, seed, n_jobs=-2, chu
                  # verbose=51
                  )
     worker = delayed(_assign_groups_worker)
-    ids = p(worker(src_flat.values, uv, sigma, closest_count, np.random.default_rng(seed))
-            for uv, seed in zip(np.array_split(tgt_flat, chunks),
-                                seed_sequences.spawn(chunks)))
+    ids = p(worker(src_flat.values, uv, sigma, closest_count, np.random.default_rng(seed_sequence))
+            for uv, seed_sequence in zip(np.array_split(tgt_flat, chunks),
+                                         seed_sequences.spawn(chunks)))
     ids = np.concatenate(ids)
 
     return src_flat.index[ids]
@@ -749,7 +749,7 @@ def _load_subsamples(samples_path, side, projection_name):
     Note: filename convenction has to match sampling.py:_subsample_per_source
     '''
     path = os.path.join(samples_path, side, projection_name + '_*.feather')
-    files = glob(path)
+    files = sorted(glob(path))
     L.debug('load_subsamples: %s -> %s', path, files)
     all_syns = [utils.read_frame(p) for p in files]
     return pd.concat(all_syns, ignore_index=True, sort=False)
@@ -809,17 +809,17 @@ def assignment(output,
             L.debug('Skipping %s, already have %s', projection_name, output_path)
             continue
 
-        L.debug('Assigning %s -> %s (%s of %s)', projection_name, output_path, i, count)
+        seed = utils.generate_seed(source_population, projection_name, hemisphere)
+        L.debug('Assigning %s -> %s (%s of %s): seed: %s',
+                projection_name, output_path, i, count, seed)
 
         # src coordinates in flat space
         src_cells = separate_source_and_targets(
             left_cells, right_cells, sgids, hemisphere, side)
-
         flat_src_uvs = src_mapper.map_points_to_flat(src_cells[utils.XYZ].to_numpy())
         src_coordinates = src_mapper.map_flat_to_flat(
             source_population, projection_name, flat_src_uvs, utils.is_mirror(side, hemisphere))
         src_coordinates = pd.DataFrame(src_coordinates, index=src_cells.index)
-
         # tgt synapses in flat space
         syns = _load_subsamples(os.path.join(output, sampling.SAMPLE_PATH), side, projection_name)
 
@@ -832,8 +832,7 @@ def assignment(output,
             math.sqrt(
                 config.recipe.projections_mapping[source_population][projection_name]['variance']),
             config.config['assignment']['closest_count'],
-            seed=config.seed + i)
-        # XXX: should be generate_seed!!!!!
+            seed=seed)
 
         if config.delay_method == 'streamlines':
             source_region = utils.population2region(config.recipe.populations, source_population)
