@@ -21,8 +21,8 @@ class FlatmapPainter:
     def __init__(self, config, fig):
         self.config = config
         self.fig = fig
-        self.flatmaps = dict()
-        self.axs = dict()
+        self.flatmaps = {}
+        self.axs = {}
 
         base_systems = config.config['flat_mapping']
         axes = fig.subplots(nrows=len(base_systems), ncols=1, sharex=True)

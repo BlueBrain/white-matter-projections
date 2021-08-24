@@ -214,7 +214,7 @@ def download_streamlines(centroids, region_map, output_path, sleep_time=0.5):
 
         text = download_streamline(source_region, source_region_id, target_region, seed)
         if text is not None:
-            with open(path, 'w') as fd:
+            with open(path, 'w', encoding='utf-8') as fd:
                 fd.write(text)
             L.debug('Wrote: %s', path)
         else:
@@ -434,7 +434,7 @@ def save(output, metadata, streamlines):
 def _read_streamlines_rows(path):
     '''read serialized streamlines'''
     streamlines = []
-    with open(path) as fd:
+    with open(path, encoding='utf-8') as fd:
         for line in fd:
             line = line.split()
             assert int(line[0]) == (len(line) - 1) / 3, 'incorrect point count'
@@ -453,7 +453,7 @@ def _write_streamlines_rows(path, streamlines):
 
     https://bbpteam.epfl.ch/project/issues/browse/NCX-54?focusedCommentId=81835&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-81835
     '''
-    with open(path, 'w') as fd:
+    with open(path, 'w', encoding='utf-8') as fd:
         for stream in streamlines:
             points = ' '.join(map(str, it.chain.from_iterable(stream)))
             fd.write('{count} {points}\n'.format(count=len(stream),

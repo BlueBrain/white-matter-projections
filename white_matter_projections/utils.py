@@ -44,7 +44,7 @@ class Config(object):
     @lazy
     def config(self):
         '''dictionary containing all keys in config'''
-        with open(self.config_path) as fd:
+        with open(self.config_path, encoding='utf-8') as fd:
             config = yaml.load(fd, Loader=yaml.FullLoader)
 
         return config
@@ -88,7 +88,7 @@ class Config(object):
         '''MacroConnections recipe referenced in config'''
         from white_matter_projections import macro
 
-        with open(self.recipe_path) as fd:
+        with open(self.recipe_path, encoding='utf-8') as fd:
             recipe = fd.read()
 
         recipe = macro.MacroConnections.load_recipe(
@@ -160,13 +160,13 @@ class Config(object):
 
         path = os.path.join(self.cache_dir, 'region_layer_heights_%s.json' % hexdigest)
         if os.path.exists(path):
-            with open(path) as fd:
+            with open(path, encoding='utf-8') as fd:
                 layer_heights = json.load(fd)
         else:
             layers = list(self.recipe.layer_profiles.subregion.unique())
             layer_heights = calculate_region_layer_heights(
                 self.atlas, self.region_map, self.regions, layers, self.config['layer_splits'])
-            with open(path, 'w') as fd:
+            with open(path, 'w', encoding='utf-8') as fd:
                 json.dump(layer_heights, fd)
 
         return region_layer_heights(layer_heights)

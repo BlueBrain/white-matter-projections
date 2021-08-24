@@ -249,7 +249,7 @@ class MacroConnections(object):
         def write_json(type_, obj):
             '''write json'''
             path = os.path.join(base_path, MacroConnections.SERIALIZATION_PATHS[type_])
-            with open(path, 'w') as fd:
+            with open(path, 'w', encoding='utf-8') as fd:
                 json.dump(obj, fd)
 
         write_json('ptypes_interaction_matrix', ptypes_interaction_matrix)
@@ -273,7 +273,7 @@ class MacroConnections(object):
         def load_json(type_):
             '''load json'''
             path = os.path.join(base_path, MacroConnections.SERIALIZATION_PATHS[type_])
-            with open(path) as fd:
+            with open(path, encoding='utf-8') as fd:
                 return json.load(fd)
 
         synapse_types = load_json('synapse_types')
@@ -368,7 +368,7 @@ class MacroConnections(object):
         if cache_dir is not None:
             path = cls.cached_recipe_path(recipe_yaml, cache_dir)
             ret._serialize(path)  # pylint: disable=protected-access
-            with open(os.path.join(path, 'recipe.yaml'), 'w') as fd:
+            with open(os.path.join(path, 'recipe.yaml'), 'w', encoding='utf-8') as fd:
                 fd.write(recipe_yaml)
 
         return ret

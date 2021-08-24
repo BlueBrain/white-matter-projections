@@ -86,7 +86,7 @@ def write_sbatch_stage(slurm_conf, app_path, config_path, working_directory,
         params.update(slurm_conf)
 
         L.debug('Creating %s', params['sbatch_path'])
-        with open(params['sbatch_path'], 'w') as fd:
+        with open(params['sbatch_path'], 'w', encoding='utf-8') as fd:
             fd.write(template.render(params))
 
 
@@ -94,6 +94,6 @@ def load_file(name):
     '''load a file from the white_matter_projections directory'''
     path = pkg_resources.resource_filename('white_matter_projections', 'data')
     path = os.path.join(path, name)
-    with open(path, 'r') as fd:
+    with open(path, 'r', encoding='utf-8') as fd:
         contents = fd.read()
     return Template(contents)

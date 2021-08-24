@@ -25,7 +25,7 @@ def cmd(ctx, config, output):
     ctx.obj['output'] = output
     utils.ensure_path(output)
 
-    with open(ctx.obj['config'].recipe_path) as fd:
+    with open(ctx.obj['config'].recipe_path, encoding='utf-8') as fd:
         path = macro.MacroConnections.cached_recipe_path(fd.read(),
                                                          ctx.obj['config'].cache_dir)
         if os.path.exists(path):

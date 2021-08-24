@@ -164,7 +164,7 @@ def assignment_validation(ctx, projection_name, side):
         projection_name)
     flat_map = config.flat_map(tgt_base_system)  # pylint: disable=redefined-outer-name
 
-    with open(flat_map.hierarchy_path, 'r') as fd:
+    with open(flat_map.hierarchy_path, 'r', encoding='utf-8') as fd:
         df = utils.hierarchy_2_df(json.load(fd))
 
     new = utils.read_frame(os.path.join(output,
