@@ -66,6 +66,20 @@ There are three options: `streamlines`, `direct`, `dive`:
 
     delay_method: dive
 
+dilation
+~~~~~~~~
+
+Number of pixels used for the volume dilatation 
+
+See https://bbpteam.epfl.ch/project/issues/browse/BBPP82-58
+
+neural_transmitter_release_delay
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Value to add to the `delay` column.
+Similar to neuralTransmitterReleaseDelay in builderRecipeAllPathways.xml
+
+
 conduction_velocity
 ~~~~~~~~~~~~~~~~~~~
 

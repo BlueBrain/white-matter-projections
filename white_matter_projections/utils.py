@@ -64,6 +64,11 @@ class Config(object):
         return self.config.get("volume_dilatation", 0)
 
     @property
+    def neural_transmitter_release_delay(self):
+        '''Similar to neuralTransmitterReleaseDelay in builderRecipeAllPathways.xml'''
+        return self.config.get("neural_transmitter_release_delay", 0.1)
+
+    @property
     def circuit(self):
         '''circuit referenced by config'''
         from bluepy import Circuit

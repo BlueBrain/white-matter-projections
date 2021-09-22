@@ -820,6 +820,7 @@ def assignment(output,
         src_coordinates = src_mapper.map_flat_to_flat(
             source_population, projection_name, flat_src_uvs, utils.is_mirror(side, hemisphere))
         src_coordinates = pd.DataFrame(src_coordinates, index=src_cells.index)
+
         # tgt synapses in flat space
         syns = _load_subsamples(os.path.join(output, sampling.SAMPLE_PATH), side, projection_name)
 
@@ -860,7 +861,5 @@ def assignment(output,
             syns['delay'] = _calculate_delay_direct(
                 src_cells, syns, config.config['conduction_velocity'])
 
-        # TODO: make a parameter; currently from a builderRecipeAllPathways.xml
-        neuralTransmitterReleaseDelay = 0.1
-        syns['delay'] += neuralTransmitterReleaseDelay
+        syns['delay'] += config.neural_transmitter_release_delay
         utils.write_frame(output_path, syns)
