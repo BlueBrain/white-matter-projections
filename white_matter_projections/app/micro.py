@@ -8,7 +8,7 @@ import click
 import pandas as pd
 import numpy as np
 
-from white_matter_projections import macro, micro, sampling, utils, write_output
+from white_matter_projections import allocations, macro, micro, sampling, utils, write_output
 from white_matter_projections.app.utils import print_color, REQUIRED_PATH
 
 
@@ -44,9 +44,9 @@ def allocate(ctx):
                     allocations_path, color='red')
         return
 
-    allocations = micro.allocate_projections(config.recipe, config.get_cells, config.rng)
+    alloc = allocations.allocate_projections(config.recipe, config.get_cells, config.rng)
 
-    micro.save_allocations(allocations_path, allocations)
+    allocations.save_allocations(allocations_path, alloc)
 
 
 @cmd.command()
@@ -143,14 +143,14 @@ def assignment(ctx, target_population, side, reverse):
 
     allocations_path = os.path.join(output, 'allocations.h5')
     target_population = target_population  # trick pylint
-    allocations = (micro.load_allocations(allocations_path, config.recipe.projections_mapping)
-                   .query('target_population == @target_population')
-                   .join(hemisphere, on=join_cols)
-                   )
+    alloc = (allocations.load_allocations(allocations_path, config.recipe.projections_mapping)
+             .query('target_population == @target_population')
+             .join(hemisphere, on=join_cols)
+             )
 
     micro.assignment(output,
                      config,
-                     allocations,
+                     alloc,
                      side,
                      reverse)
 

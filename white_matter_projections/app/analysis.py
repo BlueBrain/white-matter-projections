@@ -73,12 +73,12 @@ def calculate_compensation(ctx, projection_name, side):
 @click.pass_context
 def source_locations(ctx, projection_name, side):
     '''plot all and used source locations for `projection_name` and `side`'''
-    from white_matter_projections import display, micro
+    from white_matter_projections import allocations, display, micro
     config, output = ctx.obj['config'], ctx.obj['output']
 
     allocations_path = os.path.join(output, 'allocations.h5')
-    allocations = (micro.load_allocations(allocations_path, config.recipe.projections_mapping)
-                   .set_index('projection_name'))
+    alloc = (allocations.load_allocations(allocations_path, config.recipe.projections_mapping)
+             .set_index('projection_name'))
 
     path = os.path.join(output, micro.ASSIGNMENT_PATH, side, projection_name + '.feather')
     if not os.path.exists(path):
@@ -91,7 +91,7 @@ def source_locations(ctx, projection_name, side):
     with ctx.obj['figure'](name) as fig:
         painter = display.FlatmapPainter(config, fig)
         painter.draw_flat_map_in_colour(regions='all')
-        painter.draw_projection(allocations, syns, projection_name, side)
+        painter.draw_projection(alloc, syns, projection_name, side)
 
     print_color('Green triangle: Source region\n'
                 '   Grey: source cell positions in flat map\n'
@@ -107,14 +107,14 @@ def source_locations(ctx, projection_name, side):
 @click.pass_context
 def allocation_stats(ctx, population):
     '''Based on the allocations created by 'micro allocate', display stats'''
-    from white_matter_projections import micro
+    from white_matter_projections import allocations
     config, recipe, output = ctx.obj['config'], ctx.obj['config'].recipe, ctx.obj['output']
 
     allocations_path = os.path.join(output, 'allocations.h5')
-    allocations = micro.load_allocations(allocations_path, recipe.projections_mapping)
+    alloc = allocations.load_allocations(allocations_path, recipe.projections_mapping)
 
-    fractions, interactions = micro.allocation_stats(
-        recipe, config.get_cells, allocations, population)
+    fractions, interactions = allocations.allocation_stats(
+        recipe, config.get_cells, alloc, population)
 
     print_color('Population Fractions')
     print(fractions.to_string(max_rows=None))
