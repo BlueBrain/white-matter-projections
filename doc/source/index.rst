@@ -9,7 +9,7 @@ Contents:
    flatmap
    config
    concepts
-
+   tutorial
 
 Indices and tables
 ==================
