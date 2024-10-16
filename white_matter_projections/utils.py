@@ -173,14 +173,16 @@ class Config(object):
         hexdigest = m.hexdigest()
 
         path = os.path.join(self.cache_dir, 'cells_%s.feather' % hexdigest)
-        if os.path.exists(path):
-            cells = read_frame(path)
-        else:
+        if not os.path.exists(path):
             cells = self.circuit.cells.get()
             # orientation is removed since it historically hasn't been used
             # and it's a large *object* (not an array)
             del cells['orientation']
+
+            #note this destroys the cells dataframe, so it's reloaded below
             write_frame(path, cells, reset_index=False)
+
+        cells = read_frame(path)
 
         if population_filter is not None and population_filter != 'Empty':
             categories = self.config['populations_filters'][population_filter]
